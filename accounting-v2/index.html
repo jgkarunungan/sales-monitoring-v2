@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JGB Business Hub Accounting V2</title>
+    <link rel="stylesheet" href="./css/styles.css">
+    <!-- Tailwind CSS for layout styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 min-h-screen flex text-slate-800 antialiased font-sans">
+
+    <!-- LEFT SIDEBAR DESIGN -->
+    <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 text-slate-300">
+        <div class="p-6 border-b border-slate-800">
+            <h1 class="text-white font-black tracking-wider uppercase text-sm font-mono">JGB BUSINESS HUB</h1>
+            <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Accounting System V2</p>
+        </div>
+
+        <nav class="flex-1 p-4 space-y-1 overflow-y-auto">
+            <button data-tab="overview" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-black uppercase bg-slate-800 text-white rounded-xl transition-all shadow-sm">
+                <span>📊</span> Overview
+            </button>
+            <button data-tab="transaction-entry" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>📥</span> Transaction Entry
+            </button>
+            <button data-tab="transaction-log" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>📜</span> Transaction Log
+            </button>
+
+            <div class="pt-4 pb-1 px-4 text-[9px] font-black text-slate-600 uppercase tracking-widest">Branches</div>
+            <button data-tab="cabagnan" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>🏬</span> Cabagñan
+            </button>
+            <button data-tab="iraya" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>🏡</span> Iraya
+            </button>
+            <button id="partnerPisoWifiNav" data-tab="partner-pisowifi" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>📶</span> Partner PisoWiFi
+            </button>
+
+            <div class="pt-4 pb-1 px-4 text-[9px] font-black text-slate-600 uppercase tracking-widest">Ledgers</div>
+            <button data-tab="recovery-queue" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>🔄</span> Recovery Queue
+            </button>
+            <button data-tab="savings" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>💰</span> Savings
+            </button>
+            <button data-tab="debts" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>🏛️</span> Debts
+            </button>
+
+            <div class="pt-4 pb-1 px-4 text-[9px] font-black text-slate-600 uppercase tracking-widest">System</div>
+            <button data-tab="reports" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>📋</span> Reports
+            </button>
+            <button data-tab="settings" class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase text-slate-400 hover:bg-slate-800/50 hover:text-white rounded-xl transition-all">
+                <span>⚙️</span> Settings
+            </button>
+        </nav>
+
+        <div class="p-4 border-t border-slate-800 text-center">
+            <div class="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Platform Version</div>
+            <div class="text-xs text-slate-400 font-mono mt-0.5">V2.0.0-Stage3B</div>
+        </div>
+    </aside>
+
+    <!-- MAIN RIGHT CONTENT CONTAINER -->
+    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+        <!-- TOP STATUS BAR -->
+        <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
+            <div class="flex items-center gap-4">
+                <h2 id="pageTitle" class="text-sm font-black text-slate-800 uppercase tracking-wider font-mono">Overview</h2>
+                <div class="h-4 w-px bg-slate-200"></div>
+                <select id="periodSelect" class="bg-slate-100 border-none text-xs font-bold rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-slate-300 text-slate-600 cursor-pointer">
+                    <option value="All Time">All Time</option>
+                    <option value="This Month">This Month</option>
+                    <option value="Last 7 Days">Last 7 Days</option>
+                    <option value="Year">Year</option>
+                    <option value="October 2023">October 2023 (Historical)</option>
+                    <option value="November 2023">November 2023 (Historical)</option>
+                </select>
+            </div>
+
+            <div class="flex items-center gap-6">
+                <!-- Real-time Firestore Sync Badge -->
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] text-slate-400 font-bold uppercase">Firestore:</span>
+                    <span id="connectionBadge" class="px-3 py-1 bg-amber-100 text-amber-700 text-[10px] font-black rounded-full uppercase tracking-wider">CONNECTING</span>
+                </div>
+                <div id="syncTimestamp" class="text-xs text-slate-400 font-medium">Last Sync: Checking...</div>
+
+                <div class="h-4 w-px bg-slate-200"></div>
+                <div class="flex items-center gap-2 cursor-pointer group" id="userBadge">
+                    <div id="userInitials" class="w-7 h-7 bg-slate-800 rounded-full flex items-center justify-center font-black text-white text-xs">?</div>
+                    <div class="flex flex-col">
+                        <span id="userName" class="text-xs font-bold text-slate-700 leading-none">Guest</span>
+                        <span id="userRole" class="text-[8px] text-slate-400 font-black uppercase tracking-tighter mt-0.5">Please Login</span>
+                    </div>
+                    <button id="loginBtn" class="ml-2 bg-slate-100 hover:bg-slate-200 text-[10px] font-black px-2 py-1 rounded-lg transition-colors">LOGIN</button>
+                    <button id="logoutBtn" class="ml-2 hidden bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-black px-2 py-1 rounded-lg transition-colors">LOGOUT</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- MAIN RESPONSE WORKSPACE -->
+        <main class="flex-1 p-8 overflow-y-auto max-w-[1650px] w-full mx-auto">
+            <div id="workspaceContent" class="space-y-6">
+                <!-- Dynamically loaded via dashboard-renderer.js -->
+                <div class="p-8 text-center text-slate-400 italic">Streaming financial records from cloud database...</div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL OVERLAYS -->
+    <div id="modalOverlay" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div id="modalContent" class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden max-h-[90vh] flex flex-col">
+            <!-- Modal Body injected here -->
+        </div>
+    </div>
+
+    <!-- Application Script Bootstrapper -->
+    <script type="module" src="./js/app.js"></script>
+</body>
+</html>
