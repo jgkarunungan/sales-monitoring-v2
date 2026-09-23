@@ -103,3 +103,111 @@ Once a function or logic path is marked **PROTECTED**, it must not be refactored
 *   **Rule:** Standard validation for amounts/dates. "Quick Pay" pre-fills but does not alter projections.
 *   **Status:** PASS
 *   **Protected:** YES
+
+## 7. RECOVERY, SAVINGS & DEBTS REPAIR
+### Recovery Status Logic & Active-vs-Paused Rule
+*   **Module:** `recovery-service.js`
+*   **Rule:** Missing lifecycle metadata defaults `paused` to `false`. First unfinished target is ACTIVE, later targets WAITING, explicit `paused: true` targets PAUSED, remaining 0 targets FULLY RECOVERED.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Current Period Recovery Display & Default Period
+*   **Module:** `recovery-service.js` / `dashboard-renderer.js` / `data-service.js`
+*   **Rule:** Displays calculated recovery pool and allocations for current selected period (default: THIS MONTH). Shows zero-profit message when profit before recovery <= 0.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Savings & Debts Navigation and Renderers
+*   **Module:** `ui-controller.js` / `dashboard-renderer.js`
+*   **Rule:** Unique page mappings for `savings` and `debts`. Savings page renders full branch savings breakdown; Debts page renders debt ledger or "No debts currently enrolled." message.
+*   **Status:** PASS
+*   **Protected:** YES
+
+## 8. RECOVERY QUEUE MANAGEMENT
+### Recovery Target Edit
+*   **Module:** `settings-service.js` / `ui-controller.js`
+*   **Rule:** Allows ADMIN to edit target details without altering target ID or historical recovery ledger entries.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Target Safe Delete
+*   **Module:** `settings-service.js` / `ui-controller.js`
+*   **Rule:** Permanent deletion allowed ONLY if target has zero recovery history (openingRecovered == 0 and systemRecovered == 0).
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Target Archive
+*   **Module:** `settings-service.js` / `ui-controller.js`
+*   **Rule:** Targets with recovery history cannot be permanently deleted; they are archived, removed from active waterfall, and preserved in accounting history.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Target Restore
+*   **Module:** `settings-service.js` / `ui-controller.js`
+*   **Rule:** ADMIN can restore archived targets, placing them safely at the end of their branch recovery queue without loss of history.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Priority Editing
+*   **Module:** `settings-service.js` / `recovery-service.js`
+*   **Rule:** Priority is branch-scoped and re-sequenced sequentially (1, 2, 3...) with unique priority integers per branch.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Historical Preservation
+*   **Module:** `settings-service.js` / `recovery-service.js`
+*   **Rule:** Editing recovery rate or target amount affects only future allocations; previously recorded historical recovery allocations remain untouched.
+*   **Status:** PASS
+*   **Protected:** YES
+
+## 9. SOURCE SELF-RECOVERY ENGINE
+### `calculateSourceSelfRecovery(sourceName, logs, assets)`
+*   **Module:** `recovery-service.js`
+*   **Rule:** Source self-recovery targets (like Coffee Vendo) recover opening costs strictly from their OWN positive operating profit (Gross Revenue minus Direct Expenses). General branch profit is never used to fund source self-recovery.
+*   **Status:** PASS
+*   **Protected:** YES
+
+## 10. RECOVERY DATA ISOLATION & EMPTY STATE
+### Empty Recovery Queue Authority
+*   **Module:** `data-service.js` / `recovery-service.js` / `dashboard-renderer.js`
+*   **Rule:** An empty recovery target list (`[]`) is an authoritative production state meaning "No targets enrolled". Production state MUST NEVER fall back to sample/mock default assets.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Mode Exclusivity
+*   **Module:** `recovery-service.js` / `dashboard-renderer.js`
+*   **Rule:** Each recovery target belongs to EXACTLY ONE recovery funding mode (`SOURCE_SELF_RECOVERY` OR `BRANCH_RECOVERY`). General Branch Queue requires explicit `recoveryFundingMode === "BRANCH_RECOVERY"`.
+*   **Status:** PASS
+*   **Protected:** YES
+
+## 11. DYNAMIC RECOVERY ENROLLMENT & SOURCE ISOLATION
+### Recovery Target Enrollment
+*   **Module:** `settings-service.js` / `ui-controller.js`
+*   **Rule:** ADMIN can dynamically enroll new starting-cost items for any branch or source. Defaults to last priority in that recovery group queue.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Funding Mode
+*   **Module:** `settings-service.js` / `recovery-service.js`
+*   **Rule:** Supports `SOURCE_SELF_RECOVERY` (funded by source earnings) and `BRANCH_RECOVERY` (funded by branch profit).
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Group Exclusivity
+*   **Module:** `recovery-service.js` / `dashboard-renderer.js`
+*   **Rule:** Every recovery target belongs to EXACTLY ONE recovery pool group (`targetAllocationSourcesCount === 1`). No target receives funding from multiple pools.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Source-Specific Recovery & Dynamic Recovery Sources
+*   **Module:** `recovery-service.js` / `accounting-service.js`
+*   **Rule:** Dynamic source-specific recovery (e.g. Coffee Vendo 1 vs Coffee Vendo 2) keeps earnings and targets strictly isolated.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### No Automatic Asset Enrollment
+*   **Module:** `data-service.js` / `transaction-service.js`
+*   **Rule:** Recording an operating expense or income source does NOT automatically create a recovery target. Targets enter queue only via explicit user enrollment.
+*   **Status:** PASS
+*   **Protected:** YES
+

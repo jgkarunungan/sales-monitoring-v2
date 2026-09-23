@@ -106,10 +106,17 @@ export const normalizeLog = (rawDoc, configuredPartners = []) => {
         source = "PisoWiFi";
     }
 
+    // Extract best partner / location candidate
+    let partnerCandidate = rawDoc.partnerName || rawDoc.partner || rawDoc.location || rawDoc.sourceName || rawDoc.sourceInstanceName || null;
+    if (!partnerCandidate && labelRaw && labelRaw !== "No Label") {
+        partnerCandidate = labelRaw;
+    }
+    partnerName = partnerCandidate || partnerField;
+
     // --- 3. BRANCH CLASSIFICATION HIERARCHY ---
     const isCabagnanMatch = (l) => l.includes("cabagnan") || l.includes("cabagñan");
     const isIrayaMatch = (l) => l.includes("iraya");
-    const partnerMatchLower = partnerField ? partnerField.toLowerCase() : "";
+    const partnerMatchLower = partnerName ? partnerName.toLowerCase() : (partnerField ? partnerField.toLowerCase() : "");
 
     // A. Explicit field check
     if (rawDoc.branch && OWNER_OPERATED_BRANCHES.includes(rawDoc.branch)) {
@@ -117,29 +124,16 @@ export const normalizeLog = (rawDoc, configuredPartners = []) => {
         confidence = "High";
     } else {
         // B. Exact historical patterns for PisoWiFi
-        if (source === "PisoWiFi") {
+        if (source === "PisoWiFi" || (rawDoc.branch && (rawDoc.branch.includes("Partner") || rawDoc.branch.includes("PisoWiFi")))) {
             if (isCabagnanMatch(labelLower) || isCabagnanMatch(partnerMatchLower)) {
                 branch = "Cabagñan";
                 confidence = "High";
             } else if (isIrayaMatch(labelLower) || isIrayaMatch(partnerMatchLower)) {
                 branch = "Iraya";
                 confidence = "High";
-            } else if (partnerField) {
-                const matchedPartner = configuredPartners.find(p => p.name.toLowerCase() === partnerMatchLower);
-                if (matchedPartner && normalizePartnerType(matchedPartner.type) === "PisoWiFi") {
-                    if (isCabagnanMatch(matchedPartner.name.toLowerCase())) {
-                        branch = "Cabagñan";
-                        confidence = "High";
-                    } else if (isIrayaMatch(matchedPartner.name.toLowerCase())) {
-                        branch = "Iraya";
-                        confidence = "High";
-                    } else {
-                        branch = "Partner PisoWiFi";
-                        confidence = "High";
-                    }
-                } else {
-                    branch = "Unclassified";
-                }
+            } else {
+                branch = "Partner PisoWiFi";
+                confidence = "High";
             }
         }
         else if (source === "Coffee Vendo" || source === "Printing / Photocopy") {
@@ -169,8 +163,13 @@ export const normalizeLog = (rawDoc, configuredPartners = []) => {
         if (rawPct > 1.0) rawPct = rawPct / 100.0;
         ownerShare = rawPct;
         partnerShare = 1.0 - ownerShare;
+    } else if (rawDoc.ownerShare !== undefined && rawDoc.ownerShare !== null) {
+        let rawPct = parseFloat(rawDoc.ownerShare);
+        if (rawPct > 1.0) rawPct = rawPct / 100.0;
+        ownerShare = rawPct;
+        partnerShare = 1.0 - ownerShare;
     } else {
-        const matchedPartner = partnerField ? configuredPartners.find(p => p.name.toLowerCase() === partnerMatchLower) : null;
+        const matchedPartner = partnerMatchLower ? configuredPartners.find(p => p.name && p.name.toLowerCase() === partnerMatchLower) : null;
         if (matchedPartner) {
             ownerShare = parseFloat(matchedPartner.share || 0);
             if (ownerShare > 1.0) ownerShare /= 100.0;
@@ -184,6 +183,9 @@ export const normalizeLog = (rawDoc, configuredPartners = []) => {
         } else if (branch === "Iraya" && source === "Pisonet") {
             ownerShare = 0.50;
             partnerShare = 0.50;
+        } else {
+            ownerShare = null;
+            partnerShare = null;
         }
     }
 

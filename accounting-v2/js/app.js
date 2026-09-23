@@ -2,7 +2,10 @@ import { DataService } from './data-service.js';
 import { UIController } from './ui-controller.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log("JGB Accounting V2 Initializing...");
+    console.log("[BOOT] App start");
+
+    window.DataService = DataService;
+    window.UIController = UIController;
 
     // Initialize standard Web-UI logic
     UIController.init();

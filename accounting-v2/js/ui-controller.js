@@ -72,6 +72,18 @@ export const UIController = {
         const workspace = document.getElementById('workspaceContent');
         if (!workspace) return;
 
+        if (DataService.connectionStatus === 'ERROR') {
+            workspace.innerHTML = `
+                <div class="bg-red-50 border border-red-200 p-8 rounded-2xl text-center space-y-4 shadow-sm">
+                    <div class="text-3xl">⚠️</div>
+                    <h3 class="text-lg font-black text-red-800 uppercase tracking-tight">Firestore Connection Error</h3>
+                    <p class="text-xs text-red-600 max-w-md mx-auto font-medium leading-relaxed">${DataService.error || "Unable to establish real-time connection to cloud database."}</p>
+                    <button onclick="window.DataService.init()" class="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase rounded-xl shadow-md transition-all">Retry Connection</button>
+                </div>
+            `;
+            return;
+        }
+
         let contentHtml = '';
         switch (this.activeTab) {
             case 'overview': contentHtml = DashboardRenderer.renderOverview(); break;
@@ -97,6 +109,10 @@ export const UIController = {
             this.setupTransactionEntryListeners();
         } else if (this.activeTab === 'settings') {
             this.setupSettingsListeners();
+        } else if (this.activeTab === 'recovery-queue') {
+            this.setupRecoveryQueueListeners();
+        } else if (this.activeTab === 'partner-pisowifi') {
+            this.setupPartnerPisoWifiListeners();
         } else if (this.activeTab === 'transaction-log') {
             document.querySelectorAll('[data-tx-id]').forEach(row => {
                 row.addEventListener('click', () => {
@@ -104,6 +120,311 @@ export const UIController = {
                     this.showTransactionDetails(id);
                 });
             });
+        }
+    },
+
+    // --- PARTNER PISOWIFI LISTENERS & MODALS ---
+    setupPartnerPisoWifiListeners() {
+        document.querySelectorAll('[data-edit-partner-share]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const partnerName = btn.getAttribute('data-edit-partner-share');
+                this.showEditPartnerShareModal(partnerName);
+            });
+        });
+
+        document.querySelectorAll('[data-enroll-partner]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const partnerName = btn.getAttribute('data-enroll-partner');
+                this.showEnrollPartnerModal(partnerName);
+            });
+        });
+    },
+
+    showEditPartnerShareModal(partnerName) {
+        const partners = DataService.getPartners();
+        const pObj = partners.find(p => p.name && p.name.toLowerCase() === partnerName.toLowerCase());
+
+        let currentOwnerPct = 50;
+        if (pObj && pObj.share !== undefined) {
+            currentOwnerPct = pObj.share <= 1.0 ? Math.round(pObj.share * 100) : Math.round(pObj.share);
+        } else if (DataService.partnerPisoWifiResult && DataService.partnerPisoWifiResult[partnerName]) {
+            const groupData = DataService.partnerPisoWifiResult[partnerName];
+            if (groupData.currentOwnerShare !== null && groupData.currentOwnerShare !== undefined) {
+                currentOwnerPct = Math.round(groupData.currentOwnerShare * 100);
+            }
+        }
+
+        this.openModal(DashboardRenderer.renderEditPartnerShareModal(partnerName, currentOwnerPct));
+
+        const ownerInput = document.getElementById('inputOwnerSharePct');
+        const partnerInput = document.getElementById('inputPartnerSharePct');
+
+        if (ownerInput && partnerInput) {
+            ownerInput.addEventListener('input', () => {
+                let val = parseFloat(ownerInput.value || 0);
+                if (val < 0) val = 0;
+                if (val > 100) val = 100;
+                partnerInput.value = 100 - val;
+            });
+        }
+
+        document.getElementById('btnSavePartnerShare')?.addEventListener('click', async () => {
+            const newOwnerPct = parseFloat(ownerInput.value);
+            if (isNaN(newOwnerPct) || newOwnerPct < 0 || newOwnerPct > 100) {
+                return alert("Owner share must be between 0% and 100%.");
+            }
+            const newPartnerPct = 100 - newOwnerPct;
+
+            const confirmMsg = `CONFIRM SHARE AGREEMENT CHANGE:\n\n` +
+                               `Partner: ${partnerName}\n\n` +
+                               `CURRENT AGREEMENT:\nOwner: ${currentOwnerPct}% | Partner: ${100 - currentOwnerPct}%\n\n` +
+                               `NEW AGREEMENT:\nOwner: ${newOwnerPct}% | Partner: ${newPartnerPct}%\n\n` +
+                               `⚠️ WARNING: This change applies ONLY to future transactions.\nHistorical transactions preserve their recorded shares intact.\n\nDo you want to proceed?`;
+
+            if (confirm(confirmMsg)) {
+                try {
+                    await SettingsService.updatePartnerShare(partnerName, newOwnerPct / 100.0);
+                    this.closeModal();
+                } catch (err) {
+                    alert("Error updating partner share: " + err.message);
+                }
+            }
+        });
+    },
+
+    showEnrollPartnerModal(partnerName) {
+        this.openModal(DashboardRenderer.renderEnrollPartnerModal(partnerName));
+
+        const ownerInput = document.getElementById('enrollOwnerSharePct');
+        const partnerInput = document.getElementById('enrollPartnerSharePct');
+        const nameInput = document.getElementById('enrollPartnerName');
+
+        if (ownerInput && partnerInput) {
+            ownerInput.addEventListener('input', () => {
+                let val = parseFloat(ownerInput.value || 0);
+                if (val < 0) val = 0;
+                if (val > 100) val = 100;
+                partnerInput.value = 100 - val;
+            });
+        }
+
+        document.getElementById('btnConfirmEnrollPartner')?.addEventListener('click', async () => {
+            const finalName = nameInput.value.trim() || partnerName;
+            const newOwnerPct = parseFloat(ownerInput.value);
+            if (isNaN(newOwnerPct) || newOwnerPct < 0 || newOwnerPct > 100) {
+                return alert("Owner share must be between 0% and 100%.");
+            }
+
+            try {
+                await SettingsService.enrollPartner({
+                    name: finalName,
+                    ownerShare: newOwnerPct / 100.0
+                });
+                this.closeModal();
+            } catch (err) {
+                alert("Error enrolling partner: " + err.message);
+            }
+        });
+    },
+
+    // --- RECOVERY QUEUE LISTENERS & MODALS ---
+    setupRecoveryQueueListeners() {
+        document.getElementById('btnAddRecoveryTarget')?.addEventListener('click', () => {
+            this.showAddTargetModal();
+        });
+
+        document.getElementById('btnAddSourceFromRecovery')?.addEventListener('click', () => {
+            this.showAddSourceModal();
+        });
+
+        document.querySelectorAll('[data-edit-target]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = btn.getAttribute('data-edit-target');
+                this.showEditTargetModal(id);
+            });
+        });
+
+        document.querySelectorAll('[data-delete-target]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = btn.getAttribute('data-delete-target');
+                this.showDeleteTargetModal(id);
+            });
+        });
+
+        document.querySelectorAll('[data-restore-target]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = btn.getAttribute('data-restore-target');
+                this.handleRestoreTarget(id);
+            });
+        });
+    },
+
+    showAddTargetModal() {
+        this.openModal(DashboardRenderer.renderAddTargetModal());
+
+        document.getElementById('btnQuickAddSource')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showAddSourceModal(() => {
+                this.showAddTargetModal();
+            });
+        });
+
+        document.getElementById('btnSaveNewTarget')?.addEventListener('click', async () => {
+            const name = document.getElementById('addTargetName').value.trim();
+            const cost = parseFloat(document.getElementById('addTargetCost').value);
+            const fundingMode = document.getElementById('addTargetFundingMode').value;
+            const branch = document.getElementById('addTargetBranch').value;
+            const source = document.getElementById('addTargetSource').value;
+            const recoveryPercent = parseFloat(document.getElementById('addTargetPercent').value) / 100.0;
+            const openingRecovered = parseFloat(document.getElementById('addTargetOpeningRecovered').value || 0);
+            const notes = document.getElementById('addTargetNotes').value.trim();
+
+            if (!name) return alert("Please enter a Target Name.");
+            if (isNaN(cost) || cost <= 0) return alert("Target Amount must be greater than 0.");
+            if (isNaN(recoveryPercent) || recoveryPercent < 0 || recoveryPercent > 1.0) return alert("Recovery Percentage must be between 0% and 100%.");
+            if (isNaN(openingRecovered) || openingRecovered < 0) return alert("Opening Recovered must be >= 0.");
+            if (openingRecovered > cost) return alert("Opening Recovered cannot exceed Target Amount.");
+
+            try {
+                await SettingsService.addRecoveryTarget({
+                    name,
+                    cost,
+                    recoveryFundingMode: fundingMode,
+                    branch,
+                    source,
+                    recoveryPercent,
+                    openingRecovered,
+                    notes
+                });
+                this.closeModal();
+            } catch (err) {
+                alert("Error adding recovery target: " + err.message);
+            }
+        });
+    },
+
+    showAddSourceModal(onSuccessCallback = null) {
+        this.openModal(DashboardRenderer.renderAddSourceModal());
+
+        document.getElementById('btnSaveNewSource')?.addEventListener('click', async () => {
+            const name = document.getElementById('addSrcName').value.trim();
+            const type = document.getElementById('addSrcType').value;
+            const branch = document.getElementById('addSrcBranch').value;
+            const ownerShare = parseFloat(document.getElementById('addSrcShare').value || 100) / 100.0;
+            const notes = document.getElementById('addSrcNotes').value.trim();
+
+            if (!name) return alert("Please enter a Source Name.");
+
+            try {
+                await SettingsService.addIncomeSource({
+                    name,
+                    sourceType: type,
+                    branch,
+                    ownerShare,
+                    partnerShare: 1.0 - ownerShare,
+                    notes
+                });
+                if (onSuccessCallback) {
+                    onSuccessCallback();
+                } else {
+                    this.closeModal();
+                }
+            } catch (err) {
+                alert("Error adding income source: " + err.message);
+            }
+        });
+    },
+
+    showEditTargetModal(id) {
+        const assets = DataService.getAssets();
+        const target = assets.find(a => a.id === id);
+        if (!target) return alert("Target not found");
+
+        this.openModal(DashboardRenderer.renderEditTargetModal(target));
+
+        document.getElementById('btnSaveTarget')?.addEventListener('click', async () => {
+            const name = document.getElementById('targetName').value.trim();
+            const branch = document.getElementById('targetBranch').value;
+            const priority = parseInt(document.getElementById('targetPriority').value, 10);
+            const cost = parseFloat(document.getElementById('targetCost').value);
+            const recoveryPercent = parseFloat(document.getElementById('targetPercent').value) / 100.0;
+            const openingRecovered = parseFloat(document.getElementById('targetOpeningRecovered').value || 0);
+            const paused = document.getElementById('targetPaused').value === "true";
+            const notes = document.getElementById('targetNotes').value.trim();
+
+            if (!name) return alert("Please enter a Target Name.");
+            if (isNaN(cost) || cost <= 0) return alert("Target Amount must be greater than 0.");
+            if (isNaN(recoveryPercent) || recoveryPercent < 0 || recoveryPercent > 1.0) return alert("Recovery Percentage must be between 0% and 100%.");
+            if (isNaN(priority) || priority < 1) return alert("Priority must be a positive integer.");
+            if (isNaN(openingRecovered) || openingRecovered < 0) return alert("Opening Recovered must be >= 0.");
+            if (openingRecovered > cost) return alert("Opening Recovered cannot exceed Target Amount.");
+
+            const hasHistory = target.openingRecovered > 0 || (target.cost !== cost && target.openingRecovered > 0);
+            if (hasHistory && cost !== target.cost) {
+                const confirmChange = confirm("This recovery target already has recorded recovery history.\n\nChanging the target amount will change the remaining balance but will not change previously recorded recovery.\n\nDo you want to proceed?");
+                if (!confirmChange) return;
+            }
+
+            const recoveryFundingMode = document.getElementById('targetFundingMode')?.value || "SOURCE_SELF_RECOVERY";
+            const source = document.getElementById('targetSource')?.value.trim() || "Coffee Vendo";
+
+            try {
+                await SettingsService.editRecoveryTarget(id, {
+                    name,
+                    branch,
+                    source,
+                    recoveryFundingMode,
+                    priority,
+                    cost,
+                    recoveryPercent,
+                    openingRecovered,
+                    paused,
+                    notes
+                });
+                this.closeModal();
+            } catch (err) {
+                alert("Error updating recovery target: " + err.message);
+            }
+        });
+    },
+
+    showDeleteTargetModal(id) {
+        const assets = DataService.getAssets();
+        const target = assets.find(a => a.id === id);
+        if (!target) return alert("Target not found");
+
+        const openingRecovered = typeof target.openingRecovered === 'number' ? target.openingRecovered : (parseFloat(target.openingRecovered) || 0);
+        const cabAlloc = DataService.cabagnanResult?.allocationsDetail?.find(a => a.id === id);
+        const iryAlloc = DataService.irayaResult?.allocationsDetail?.find(a => a.id === id);
+        const periodAlloc = (cabAlloc?.currentPeriodAllocation || 0) + (iryAlloc?.currentPeriodAllocation || 0);
+        const totalRecovered = openingRecovered + periodAlloc;
+        const remaining = Math.max(0, target.cost - totalRecovered);
+
+        const hasHistory = openingRecovered > 0 || periodAlloc > 0 || target.hasLedger === true;
+
+        this.openModal(DashboardRenderer.renderDeleteTargetModal(target, hasHistory, totalRecovered, remaining));
+
+        document.getElementById('btnConfirmDelete')?.addEventListener('click', async () => {
+            try {
+                await SettingsService.deleteOrArchiveRecoveryTarget(id);
+                this.closeModal();
+            } catch (err) {
+                alert("Error removing recovery target: " + err.message);
+            }
+        });
+    },
+
+    async handleRestoreTarget(id) {
+        const assets = DataService.getAssets();
+        const target = assets.find(a => a.id === id);
+        if (!target) return;
+
+        if (confirm(`Restore '${target.name}' back to active Recovery Queue for ${target.branch}?`)) {
+            try {
+                await SettingsService.restoreRecoveryTarget(id);
+            } catch (err) {
+                alert("Error restoring target: " + err.message);
+            }
         }
     },
 

@@ -69,6 +69,9 @@ export const AccountingService = {
     calculateCabagnan(filteredLogs, assets) {
         const branchLogs = filteredLogs.filter(l => l.branch === "Cabagñan");
 
+        // Compute Coffee Vendo Self-Recovery FIRST
+        const coffeeSelfRecovery = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", branchLogs, assets);
+
         // Base core sources
         const coreSourceTypes = ["Pisonet", "PisoWiFi", "Coffee Vendo", "Printing / Photocopy"];
 
@@ -93,16 +96,25 @@ export const AccountingService = {
                 }
             });
 
-            // For Cabagñan, if it's not explicitly marked as partnered in the source registry, assume 100% owner
+            const opProfit = grossRevenue - directExpenses;
+            const recAlloc = (src === "Coffee Vendo") ? coffeeSelfRecovery.allocatedTotal : 0;
+            const surplus = opProfit - recAlloc;
+
             sourcesBreakdown[src] = {
                 grossRevenue,
                 ownerRevenue: grossRevenue,
                 fullDirectExpenses: directExpenses,
-                ownerOperatingProfit: grossRevenue - directExpenses
+                ownerOperatingProfit: opProfit,
+                recoveryAllocated: recAlloc,
+                surplusAfterRecovery: surplus
             };
         });
 
-        const totalSourceContribution = Object.values(sourcesBreakdown).reduce((acc, curr) => acc + curr.ownerOperatingProfit, 0);
+        // Sum up source contributions (for Coffee Vendo, use surplus after self-recovery)
+        let totalSourceContribution = 0;
+        Object.keys(sourcesBreakdown).forEach(src => {
+            totalSourceContribution += sourcesBreakdown[src].surplusAfterRecovery;
+        });
 
         const branchBills = {
             aleco: { label: "Electricity (ALECO)", amount: 0 },
@@ -132,9 +144,16 @@ export const AccountingService = {
         const savingsContribution = profitAfterRecovery > 0 ? profitAfterRecovery * 0.05 : 0;
         const finalBranchEarnings = profitAfterRecovery - savingsContribution;
 
+        // Combine allocations detail (Coffee Self-Recovery + General Waterfall)
+        const combinedAllocations = [
+            ...coffeeSelfRecovery.allocations,
+            ...waterfallResult.allocations
+        ];
+
         return {
             branch: "Cabagñan",
             sources: sourcesBreakdown,
+            coffeeSelfRecovery,
             totalSourceContribution,
             branchBills,
             otherBranchExpenses,
@@ -143,8 +162,8 @@ export const AccountingService = {
             profitBeforeRecovery,
             recoveryPool: waterfallResult.recoveryPool,
             rateUsed: waterfallResult.rateUsed,
-            allocatedTotal: waterfallResult.allocatedTotal,
-            allocationsDetail: waterfallResult.allocations,
+            allocatedTotal: coffeeSelfRecovery.allocatedTotal + waterfallResult.allocatedTotal,
+            allocationsDetail: combinedAllocations,
             profitAfterRecovery,
             savingsContribution,
             finalBranchEarnings
@@ -271,67 +290,134 @@ export const AccountingService = {
             sharedBills,
             totalSharedBillsFull: sharedBills.aleco.fullAmount + sharedBills.dctv.fullAmount + otherSharedExpensesFull,
             sharedBillsDetail,
+            recoveryPool: waterfallResult.recoveryPool,
             rateUsed: waterfallResult.rateUsed,
             allocatedTotal: waterfallResult.allocatedTotal,
             allocationsDetail: waterfallResult.allocations
         };
     },
 
-    calculatePartnerPisoWifi(filteredLogs, configuredPartners) {
+    calculatePartnerPisoWifi(filteredLogs, configuredPartners = []) {
         const partnerGroups = {};
 
-        const validPisoWiFiPartners = configuredPartners.filter(p => {
+        const validPisoWiFiPartners = (configuredPartners || []).filter(p => {
             const normType = normalizePartnerType(p.type);
-            const lowerName = p.name.toLowerCase();
+            const lowerName = p.name ? p.name.toLowerCase() : "";
             return normType === "PisoWiFi" && !OWNER_OPERATED_BRANCHES.some(b => lowerName.includes(b.toLowerCase()));
         });
 
         validPisoWiFiPartners.forEach(p => {
+            const ownerShare = p.share !== undefined ? p.share : 0.50;
             partnerGroups[p.name] = {
                 partnerName: p.name,
+                partnerId: p.id,
+                isEnrolled: true,
+                currentOwnerShare: ownerShare,
+                currentPartnerShare: 1.0 - ownerShare,
+                ownerSharePct: ownerShare, // Backwards compatibility
+                status: "USER ENROLLED - NO TRANSACTIONS YET",
                 grossRevenue: 0,
-                ownerSharePct: p.share,
+                historicalOwnerRevenue: 0,
+                historicalPartnerRevenue: 0,
                 ownerRevenue: 0,
                 partnerRevenueAccrued: 0,
+                unrecordedShareTxCount: 0,
                 fullDirectExpenses: 0,
                 ownerExpenseResponsibility: 0,
                 partnerExpenseResponsibility: 0,
                 ownerOperatingProfit: 0,
                 partnerNetBeforePayout: 0,
                 verifiedPayouts: 0,
-                txCount: 0
+                txCount: 0,
+                firstTxDate: null,
+                lastTxDate: null,
+                sampleTxId: null
             };
         });
 
-        filteredLogs.forEach(l => {
-            if (l.branch === "Partner PisoWiFi" && l.partnerName) {
-                if (!partnerGroups[l.partnerName]) return;
+        (filteredLogs || []).forEach(l => {
+            const isPisoWifiSource = l.source === "PisoWiFi" || (l.label && l.label.toLowerCase().includes("pisowifi")) || (l.label && l.label.toLowerCase().includes("piso wifi"));
+            const isPartnerBranch = l.branch === "Partner PisoWiFi" || isPisoWifiSource;
 
-                const g = partnerGroups[l.partnerName];
+            if (isPartnerBranch) {
+                const partnerName = l.partnerName || l.partner || l.label;
+                if (!partnerName) return;
+
+                const lowerPartner = partnerName.toLowerCase();
+                if (OWNER_OPERATED_BRANCHES.some(b => lowerPartner.includes(b.toLowerCase()))) return;
+
+                if (!partnerGroups[partnerName]) {
+                    const matched = (configuredPartners || []).find(cp => cp.name && cp.name.toLowerCase() === lowerPartner);
+                    const currentOwnerShare = matched ? matched.share : null;
+                    const currentPartnerShare = matched ? 1.0 - matched.share : null;
+
+                    partnerGroups[partnerName] = {
+                        partnerName: partnerName,
+                        partnerId: matched ? matched.id : null,
+                        isEnrolled: !!matched,
+                        currentOwnerShare: currentOwnerShare,
+                        currentPartnerShare: currentPartnerShare,
+                        ownerSharePct: currentOwnerShare !== null ? currentOwnerShare : 0.50,
+                        status: matched ? "ENROLLED" : "HISTORICAL PARTNER - NOT YET ENROLLED",
+                        grossRevenue: 0,
+                        historicalOwnerRevenue: 0,
+                        historicalPartnerRevenue: 0,
+                        ownerRevenue: 0,
+                        partnerRevenueAccrued: 0,
+                        unrecordedShareTxCount: 0,
+                        fullDirectExpenses: 0,
+                        ownerExpenseResponsibility: 0,
+                        partnerExpenseResponsibility: 0,
+                        ownerOperatingProfit: 0,
+                        partnerNetBeforePayout: 0,
+                        verifiedPayouts: 0,
+                        txCount: 0,
+                        firstTxDate: null,
+                        lastTxDate: null,
+                        sampleTxId: null
+                    };
+                }
+
+                const g = partnerGroups[partnerName];
+                if (g.isEnrolled) {
+                    g.status = "ENROLLED";
+                }
+
                 g.txCount++;
-
-                const ownSharePct = l.ownerShare !== null ? l.ownerShare : g.ownerSharePct;
-                const partSharePct = 1.0 - ownSharePct;
+                if (!g.firstTxDate || l.date < g.firstTxDate) g.firstTxDate = l.date;
+                if (!g.lastTxDate || l.date > g.lastTxDate) g.lastTxDate = l.date;
+                if (!g.sampleTxId) g.sampleTxId = l.id;
 
                 if (l.type === "income") {
                     g.grossRevenue += l.amount;
-                    g.ownerRevenue += l.amount * ownSharePct;
-                    g.partnerRevenueAccrued += l.amount * partSharePct;
+
+                    if (l.ownerShare !== null && l.ownerShare !== undefined) {
+                        g.historicalOwnerRevenue += l.amount * l.ownerShare;
+                        g.historicalPartnerRevenue += l.amount * (l.partnerShare !== null && l.partnerShare !== undefined ? l.partnerShare : (1.0 - l.ownerShare));
+                    } else if (g.currentOwnerShare !== null && g.currentOwnerShare !== undefined) {
+                        g.historicalOwnerRevenue += l.amount * g.currentOwnerShare;
+                        g.historicalPartnerRevenue += l.amount * g.currentPartnerShare;
+                    } else {
+                        g.unrecordedShareTxCount++;
+                    }
                 } else if (l.type === "expense" || l.type === "outflow") {
                     if (l.expenseCategory === "Partner Payout") {
                         g.verifiedPayouts += l.amount;
-                    } else if (l.expenseScope === "Source Direct Expense") {
+                    } else {
                         g.fullDirectExpenses += l.amount;
-                        g.ownerExpenseResponsibility += l.amount * ownSharePct;
-                        g.partnerExpenseResponsibility += l.amount * partSharePct;
+                        const ownExpShare = l.ownerShare !== null && l.ownerShare !== undefined ? l.ownerShare : (g.currentOwnerShare !== null ? g.currentOwnerShare : 0.50);
+                        g.ownerExpenseResponsibility += l.amount * ownExpShare;
+                        g.partnerExpenseResponsibility += l.amount * (1.0 - ownExpShare);
                     }
                 }
             }
         });
 
         Object.values(partnerGroups).forEach(g => {
-            g.ownerOperatingProfit = g.ownerRevenue - g.ownerExpenseResponsibility;
-            g.partnerNetBeforePayout = g.partnerRevenueAccrued - g.partnerExpenseResponsibility;
+            g.ownerRevenue = g.historicalOwnerRevenue;
+            g.partnerRevenueAccrued = g.historicalPartnerRevenue;
+            g.ownerOperatingProfit = g.historicalOwnerRevenue - g.ownerExpenseResponsibility;
+            g.partnerNetBeforePayout = g.historicalPartnerRevenue - g.partnerExpenseResponsibility;
         });
 
         return partnerGroups;
@@ -391,7 +477,10 @@ export const AccountingService = {
             irayaPisonetSemantics: "FAIL",
             irayaExpensesResponsibility: "FAIL",
             savingsFormula: "FAIL",
-            lossProtectionFormula: "FAIL"
+            lossProtectionFormula: "FAIL",
+            recoveryAllocationTest: "FAIL",
+            zeroProfitRecoveryTest: "FAIL",
+            pausedTargetTest: "FAIL"
         };
         const mockLigaoLog = { type: "income", amount: 10000, ownerShare: 0.40, partnerShare: 0.60 };
         if ((mockLigaoLog.amount * mockLigaoLog.ownerShare) === 4000) tests.ligaoShareSemantics = "PASS";
@@ -402,6 +491,29 @@ export const AccountingService = {
         if ((2000 * 0.50) === 1000 && (1200 * 0.50) === 600) tests.irayaExpensesResponsibility = "PASS";
         if ((3500 * 0.05) === 175) tests.savingsFormula = "PASS";
         tests.lossProtectionFormula = "PASS";
+
+        // Required Recovery Test (Section 22)
+        const t1 = RecoveryService.calculateBranchWaterfall("Cabagñan", 10000, [], true);
+        if (t1.recoveryPool === 5000 && t1.allocations[0]?.status === "ACTIVE" && t1.allocations[1]?.status === "WAITING" && t1.allocatedTotal === 5000) {
+            tests.recoveryAllocationTest = "PASS";
+        }
+
+        // Required Zero-Profit Test (Section 23)
+        const t2 = RecoveryService.calculateBranchWaterfall("Cabagñan", 0, [], true);
+        if (t2.recoveryPool === 0 && t2.allocations[0]?.status === "ACTIVE") {
+            tests.zeroProfitRecoveryTest = "PASS";
+        }
+
+        // Required Paused Test (Section 24)
+        const pausedAssets = [
+            { id: "rec_coffee_machine", name: "Coffee Vendo Machine", cost: 20000, recoveryPercent: 0.50, branch: "Cabagñan", paused: true },
+            { id: "rec_metal_case", name: "Coffee Metal Case", cost: 8000, recoveryPercent: 0.50, branch: "Cabagñan", paused: false }
+        ];
+        const t3 = RecoveryService.calculateBranchWaterfall("Cabagñan", 10000, pausedAssets, false);
+        if (t3.allocations[0]?.status === "PAUSED" && t3.allocations[1]?.status === "ACTIVE") {
+            tests.pausedTargetTest = "PASS";
+        }
+
         return tests;
     }
 };

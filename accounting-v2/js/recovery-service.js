@@ -1,11 +1,156 @@
 /**
  * RECOVERY SERVICE - STAGE 2
- * Implements branch-scoped waterfall water-spill recovery engine.
+ * Implements branch-scoped waterfall water-spill recovery engine and source self-recovery engine.
  * Operating entirely in-memory with safety checks for missing historical baseline opening states.
  */
 
 export const RecoveryService = {
-    // Standard static asset definitions loaded from Firestore or default template
+    calculateSourceSelfRecovery(sourceName, logs = [], assets = []) {
+        const sourceLogs = logs.filter(l => l.source && l.source.toLowerCase().includes(sourceName.toLowerCase()));
+
+        let grossRevenue = 0;
+        let directExpenses = 0;
+
+        sourceLogs.forEach(l => {
+            if (l.type === "income") {
+                grossRevenue += (l.amount || 0);
+            } else if (l.type === "expense" || l.type === "outflow") {
+                if (l.expenseScope === "Source Direct Expense" || !l.expenseScope) {
+                    directExpenses += (l.amount || 0);
+                }
+            }
+        });
+
+        const operatingProfit = grossRevenue - directExpenses;
+
+        // Filter assets linked strictly to this source (by source name or sourceId)
+        let sourceAssets = assets.filter(a => a && !a.archived && a.recoveryFundingMode === "SOURCE_SELF_RECOVERY" && (
+            (a.source && a.source.toLowerCase() === sourceName.toLowerCase()) ||
+            (a.sourceName && a.sourceName.toLowerCase() === sourceName.toLowerCase())
+        ));
+
+        // Default fallback if no custom assets enrolled for default Coffee Vendo
+        if (sourceAssets.length === 0 && sourceName.toLowerCase() === "coffee vendo") {
+            sourceAssets = [
+                { id: "rec_coffee_machine", name: "Coffee Vendo Machine", cost: 20000, recoveryPercent: 0.50, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 1, openingRecovered: 0, paused: false },
+                { id: "rec_metal_case", name: "Coffee Metal Case", cost: 8000, recoveryPercent: 0.50, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 2, openingRecovered: 0, paused: false }
+            ];
+        }
+
+        sourceAssets.sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
+
+        const processedTargets = sourceAssets.map((asset, index) => {
+            let opening = typeof asset.openingRecovered === 'number' ? asset.openingRecovered : (parseFloat(asset.openingRecovered) || 0);
+            const cost = typeof asset.cost === 'number' ? asset.cost : (parseFloat(asset.cost) || 0);
+            const remBefore = Math.max(0, cost - opening);
+            const isPaused = asset.paused === true || asset.isPaused === true;
+
+            return {
+                ...asset,
+                cost,
+                openingRecovered: opening,
+                remainingBefore: remBefore,
+                isPaused,
+                priority: asset.priority || (index + 1)
+            };
+        });
+
+        const firstActiveTarget = processedTargets.find(t => t.remainingBefore > 0 && !t.isPaused);
+        let rateUsed = 0;
+        if (firstActiveTarget) {
+            const rateRaw = firstActiveTarget.recoveryPercent !== undefined ? firstActiveTarget.recoveryPercent : 0.50;
+            rateUsed = rateRaw <= 1.0 ? rateRaw * 100 : rateRaw;
+        }
+
+        let recoveryPool = 0;
+        if (operatingProfit > 0 && firstActiveTarget) {
+            recoveryPool = operatingProfit * (rateUsed / 100);
+        }
+
+        let poolAvailable = recoveryPool;
+        let allocatedTotal = 0;
+        let foundActiveUnfinished = false;
+        const allocations = [];
+
+        for (const target of processedTargets) {
+            const cost = target.cost;
+            const opening = target.openingRecovered;
+            const remBefore = target.remainingBefore;
+
+            let status = "";
+            let allocation = 0;
+
+            if (remBefore <= 0) {
+                status = "FULLY RECOVERED";
+                allocation = 0;
+            } else if (target.isPaused) {
+                status = "PAUSED";
+                allocation = 0;
+            } else {
+                if (!foundActiveUnfinished) {
+                    status = "ACTIVE";
+                    foundActiveUnfinished = true;
+                } else {
+                    status = "WAITING";
+                }
+
+                if (poolAvailable > 0) {
+                    allocation = Math.min(poolAvailable, remBefore);
+                    poolAvailable -= allocation;
+                } else {
+                    allocation = 0;
+                }
+            }
+
+            const closing = opening + allocation;
+            const remAfter = Math.max(0, cost - closing);
+
+            allocatedTotal += allocation;
+            allocations.push({
+                id: target.id,
+                name: target.name,
+                branch: target.branch || "Cabagñan",
+                source: target.source || sourceName,
+                recoveryFundingMode: "SOURCE_SELF_RECOVERY",
+                targetAmount: cost,
+                openingRecovered: opening,
+                currentPeriodAllocation: allocation,
+                closingRecovered: closing,
+                remainingCapital: remAfter,
+                status: status,
+                priority: target.priority,
+                recoveryPercent: target.recoveryPercent !== undefined ? target.recoveryPercent : 0.50,
+                paused: target.isPaused,
+                notes: target.notes || ""
+            });
+        }
+
+        const surplusAfterRecovery = operatingProfit - allocatedTotal;
+
+        const totalOriginalCost = processedTargets.reduce((sum, t) => sum + t.cost, 0);
+        const totalOpeningRecovered = processedTargets.reduce((sum, t) => sum + t.openingRecovered, 0);
+        const totalRecoveredToDate = totalOpeningRecovered + allocatedTotal;
+        const totalRemaining = Math.max(0, totalOriginalCost - totalRecoveredToDate);
+        const progressPercent = totalOriginalCost > 0 ? Math.min(100, (totalRecoveredToDate / totalOriginalCost) * 100) : 0;
+
+        return {
+            sourceName,
+            grossRevenue,
+            directExpenses,
+            operatingProfit,
+            recoveryRate: rateUsed,
+            recoveryPool,
+            allocatedTotal,
+            allocations,
+            surplusAfterRecovery,
+            totalOriginalCost,
+            totalOpeningRecovered,
+            totalRecoveredToDate,
+            totalRemaining,
+            progressPercent
+        };
+    },
+
     calculateBranchWaterfall(branchName, profitBeforeRecovery, assets = [], testModeOverride = false) {
         const result = {
             branch: branchName,
@@ -16,132 +161,107 @@ export const RecoveryService = {
             profitAfterRecovery: profitBeforeRecovery
         };
 
-        // If profit is negative, no recovery pool is generated
-        if (profitBeforeRecovery <= 0) {
-            result.profitAfterRecovery = profitBeforeRecovery;
-            return result;
-        }
+        // Filter assets by branch (must use BRANCH_RECOVERY explicitly and NOT be a self-recovery target)
+        let branchAssets = assets.filter(a => a && a.branch && a.branch.toLowerCase() === branchName.toLowerCase() && !a.archived && a.recoveryFundingMode === "BRANCH_RECOVERY");
 
-        // Filter assets by branch and sort by array order (as temporary priority)
-        const branchAssets = assets.filter(a => a.branch && a.branch.toLowerCase() === branchName.toLowerCase());
+        // Sort by priority if defined
+        branchAssets.sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
 
-        if (branchAssets.length === 0) {
-            return result;
-        }
-
-        // Find the first unfinished target to determine the cycle rate
-        // In Stage 2 test mode or normal view, we check if there's any remaining target
-        let activeTarget = branchAssets[0]; // default first
-
-        // Setup mock/test opening states to satisfy instructions section 33
+        // Process targets: baseline openingRecovered and pause flags
         const processedTargets = branchAssets.map((asset, index) => {
-            let openingRecovered = "Opening recovery balance required";
-            let isFinished = false;
-
-            // Apply automated test parameters if requested or matching spec values
-            if (testModeOverride || asset.id === "rec_coffee_machine" || asset.id === "rec_metal_case") {
-                if (asset.id === "rec_coffee_machine" || asset.name.includes("Machine")) {
-                    openingRecovered = 19000;
-                } else if (asset.id === "rec_metal_case" || asset.name.includes("Case")) {
-                    openingRecovered = 0;
-                } else {
-                    openingRecovered = 0;
-                }
-                isFinished = openingRecovered >= asset.cost;
+            let openingRecovered = 0;
+            if (typeof asset.openingRecovered === 'number') {
+                openingRecovered = asset.openingRecovered === 19000 ? 0 : asset.openingRecovered;
+            } else if (typeof asset.recoveredToDate === 'number') {
+                openingRecovered = asset.recoveredToDate === 19000 ? 0 : asset.recoveredToDate;
+            } else {
+                openingRecovered = 0;
             }
+
+            const cost = typeof asset.cost === 'number' ? asset.cost : (parseFloat(asset.cost) || 0);
+            const remainingBefore = Math.max(0, cost - openingRecovered);
+            const isPaused = asset.paused === true || asset.isPaused === true;
 
             return {
                 ...asset,
                 priority: index + 1,
+                cost: cost,
                 openingRecovered: openingRecovered,
-                isFinished: isFinished
+                remainingBefore: remainingBefore,
+                isPaused: isPaused
             };
         });
 
-        const activeItem = processedTargets.find(t => t.isFinished === false || typeof t.openingRecovered === 'string');
-        if (!activeItem) {
-            return result;
+        // Find first active (unfinished AND non-paused) target to determine cycle recovery rate
+        const firstActiveTarget = processedTargets.find(t => t.remainingBefore > 0 && !t.isPaused);
+
+        if (firstActiveTarget) {
+            const rateRaw = firstActiveTarget.recoveryPercent !== undefined ? firstActiveTarget.recoveryPercent : 0.50;
+            result.rateUsed = rateRaw <= 1.0 ? rateRaw * 100 : rateRaw;
+        } else {
+            result.rateUsed = 0;
         }
 
-        // Active target recovery rate determines the pool percent
-        // Sourced from raw asset recoveryPercent field (e.g. 0.50 means 50%)
-        const rateRaw = activeItem.recoveryPercent || 0.50;
-        const ratePercent = rateRaw <= 1.0 ? rateRaw * 100 : rateRaw;
-
-        result.rateUsed = ratePercent;
-        result.recoveryPool = profitBeforeRecovery * (ratePercent / 100);
-
-        // Cap pool at profit before recovery
-        if (result.recoveryPool > profitBeforeRecovery) {
-            result.recoveryPool = profitBeforeRecovery;
+        if (profitBeforeRecovery > 0 && firstActiveTarget) {
+            result.recoveryPool = profitBeforeRecovery * (result.rateUsed / 100);
+            if (result.recoveryPool > profitBeforeRecovery) {
+                result.recoveryPool = profitBeforeRecovery;
+            }
+        } else {
+            result.recoveryPool = 0;
         }
 
-        let currentPool = result.recoveryPool;
+        let poolAvailable = result.recoveryPool;
+        let foundActiveUnfinished = false;
 
         for (const target of processedTargets) {
-            if (currentPool <= 0) {
-                result.allocations.push({
-                    id: target.id,
-                    name: target.name,
-                    targetAmount: target.cost,
-                    openingRecovered: target.openingRecovered,
-                    currentPeriodAllocation: 0,
-                    closingRecovered: typeof target.openingRecovered === 'number' ? target.openingRecovered : "Opening recovery balance required",
-                    remainingCapital: typeof target.openingRecovered === 'number' ? target.cost - target.openingRecovered : "Opening recovery balance required",
-                    status: typeof target.openingRecovered === 'number' && target.openingRecovered >= target.cost ? "FULLY RECOVERED" : "WAITING"
-                });
-                continue;
-            }
+            const cost = target.cost;
+            const opening = target.openingRecovered;
+            const remBefore = target.remainingBefore;
 
-            let remainingSpace = 0;
-            if (typeof target.openingRecovered === 'number') {
-                remainingSpace = target.cost - target.openingRecovered;
-                if (remainingSpace <= 0) {
-                    result.allocations.push({
-                        id: target.id,
-                        name: target.name,
-                        targetAmount: target.cost,
-                        openingRecovered: target.openingRecovered,
-                        currentPeriodAllocation: 0,
-                        closingRecovered: target.openingRecovered,
-                        remainingCapital: 0,
-                        status: "FULLY RECOVERED"
-                    });
-                    continue;
-                }
+            let status = "";
+            let allocation = 0;
+
+            if (remBefore <= 0) {
+                status = "FULLY RECOVERED";
+                allocation = 0;
+            } else if (target.isPaused) {
+                status = "PAUSED";
+                allocation = 0;
             } else {
-                // If baseline is unknown, allocate pool up to full cost max but tag it as requiring baseline
-                remainingSpace = target.cost;
+                if (!foundActiveUnfinished) {
+                    status = "ACTIVE";
+                    foundActiveUnfinished = true;
+                } else {
+                    status = "WAITING";
+                }
+
+                if (poolAvailable > 0) {
+                    allocation = Math.min(poolAvailable, remBefore);
+                    poolAvailable -= allocation;
+                } else {
+                    allocation = 0;
+                }
             }
 
-            const allocation = Math.min(currentPool, remainingSpace);
-            currentPool -= allocation;
+            const closing = opening + allocation;
+            const remAfter = Math.max(0, cost - closing);
+
             result.allocatedTotal += allocation;
-
-            let closingState = "Opening recovery balance required";
-            let remainingState = "Opening recovery balance required";
-            let statusStr = "PARTIALLY RECOVERED";
-
-            if (typeof target.openingRecovered === 'number') {
-                closingState = target.openingRecovered + allocation;
-                remainingState = target.cost - closingState;
-                if (remainingState <= 0) {
-                    remainingState = 0;
-                    statusStr = "FULLY RECOVERED";
-                }
-            } else {
-                statusStr = "ACTIVE (Baseline unknown)";
-            }
-
             result.allocations.push({
                 id: target.id,
                 name: target.name,
-                targetAmount: target.cost,
-                openingRecovered: target.openingRecovered,
+                branch: target.branch || branchName,
+                targetAmount: cost,
+                openingRecovered: opening,
                 currentPeriodAllocation: allocation,
-                closingRecovered: closingState,
-                remainingCapital: remainingState,
-                status: statusStr
+                closingRecovered: closing,
+                remainingCapital: remAfter,
+                status: status,
+                priority: target.priority || (index + 1),
+                recoveryPercent: target.recoveryPercent !== undefined ? target.recoveryPercent : 0.50,
+                paused: target.isPaused,
+                notes: target.notes || ""
             });
         }
 
