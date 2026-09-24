@@ -84,6 +84,17 @@ export const UIController = {
             return;
         }
 
+        // If user is currently on transaction-entry tab and has an active form open,
+        // do not wipe out workspaceContent during background snapshot updates.
+        if (this.activeTab === 'transaction-entry' && document.getElementById('entryFormWorkspace')) {
+            const activeFormWorkspace = document.getElementById('entryFormWorkspace');
+            if (activeFormWorkspace && activeFormWorkspace.children.length > 0 && (document.getElementById('btnSaveIncome') || document.getElementById('btnSaveExpense'))) {
+                this.updateHeaderStatus();
+                this.updateUserSessionUI();
+                return;
+            }
+        }
+
         let contentHtml = '';
         switch (this.activeTab) {
             case 'overview': contentHtml = DashboardRenderer.renderOverview(); break;
@@ -537,9 +548,12 @@ export const UIController = {
                 // Duplicate check
                 const status = DashboardRenderer.getBillMonthStatus(bill);
                 if (status === 'RECORDED') {
-                    document.getElementById('exStatus').innerHTML = `<div class="bg-amber-900/50 p-3 rounded-xl border border-amber-500/50 text-amber-200 mb-4 text-center">
-                        ⚠️ This bill appears to have already been recorded this month.
-                    </div>`;
+                    const exStatusEl = document.getElementById('exStatus');
+                    if (exStatusEl) {
+                        exStatusEl.innerHTML = `<div class="bg-amber-900/50 p-3 rounded-xl border border-amber-500/50 text-amber-200 mb-4 text-center">
+                            ⚠️ This bill appears to have already been recorded this month.
+                        </div>`;
+                    }
                 }
             }
         });
@@ -641,19 +655,38 @@ export const UIController = {
             };
 
             saveBtn.disabled = true;
+            const originalBtnText = saveBtn.innerText;
             saveBtn.innerText = "Saving Transaction...";
+
+            let docId = null;
             try {
-                const id = await TransactionService.recordIncome(data);
-                document.getElementById('inStatus').innerHTML = `
-                    <div class="text-emerald-600 mb-2">✅ Saved Successfully</div>
-                    <button class="text-blue-600 hover:underline" onclick="UIController.switchTab('transaction-log')">View in Log</button>
-                `;
-                amountEl.value = "";
-                labelEl.value = "";
-            } catch (err) {
-                alert("Error saving: " + err.message);
+                docId = await TransactionService.recordIncome(data);
+            } catch (saveError) {
+                console.error("Firestore Income save failed:", saveError);
+                alert("Transaction could not be saved: " + saveError.message);
                 saveBtn.disabled = false;
-                saveBtn.innerText = "Save Income";
+                saveBtn.innerText = originalBtnText;
+                return;
+            }
+
+            try {
+                saveBtn.disabled = false;
+                saveBtn.innerText = originalBtnText;
+
+                if (amountEl) amountEl.value = "";
+                if (labelEl) labelEl.value = "";
+
+                const statusEl = document.getElementById('inStatus');
+                if (statusEl) {
+                    statusEl.innerHTML = `
+                        <div class="text-emerald-600 mb-2 font-bold">✅ Transaction Saved Successfully</div>
+                        <button class="text-blue-600 hover:underline text-xs font-bold" onclick="UIController.switchTab('transaction-log')">View in Transaction Log</button>
+                    `;
+                } else {
+                    alert("Transaction saved successfully!");
+                }
+            } catch (uiError) {
+                console.error("Post-save UI error (Income):", uiError);
             }
         });
     },
@@ -800,16 +833,38 @@ export const UIController = {
             };
 
             saveBtn.disabled = true;
+            const originalBtnText = saveBtn.innerText;
             saveBtn.innerText = "Saving Transaction...";
+
+            let docId = null;
             try {
-                await TransactionService.recordExpense(data);
-                document.getElementById('exStatus').innerHTML = `✅ Saved Successfully. <button class="text-white hover:underline" onclick="UIController.switchTab('transaction-log')">View Log</button>`;
-                amountEl.value = "";
-                labelEl.value = "";
-            } catch (err) {
-                alert("Error saving: " + err.message);
+                docId = await TransactionService.recordExpense(data);
+            } catch (saveError) {
+                console.error("Firestore Expense save failed:", saveError);
+                alert("Transaction could not be saved: " + saveError.message);
                 saveBtn.disabled = false;
-                saveBtn.innerText = "Save Expense";
+                saveBtn.innerText = originalBtnText;
+                return;
+            }
+
+            try {
+                saveBtn.disabled = false;
+                saveBtn.innerText = originalBtnText;
+
+                if (amountEl) amountEl.value = "";
+                if (labelEl) labelEl.value = "";
+
+                const statusEl = document.getElementById('exStatus');
+                if (statusEl) {
+                    statusEl.innerHTML = `
+                        <div class="text-emerald-400 mb-2 font-bold">✅ Transaction Saved Successfully</div>
+                        <button class="text-white hover:underline text-xs font-bold" onclick="UIController.switchTab('transaction-log')">View in Transaction Log</button>
+                    `;
+                } else {
+                    alert("Transaction saved successfully!");
+                }
+            } catch (uiError) {
+                console.error("Post-save UI error (Expense):", uiError);
             }
         });
     },
