@@ -231,7 +231,7 @@ export const UIController = {
             tallyEl.innerText = `Showing ${filtered.length} of ${totalDatasetCount} transactions`;
         }
 
-        const tableContainer = document.querySelector('#workspaceContent .bg-white.rounded-2xl.border.border-slate-200.shadow-sm.overflow-hidden');
+        const tableContainer = document.getElementById('txLogTableContainer');
         if (tableContainer) {
             if (filtered.length === 0) {
                 tableContainer.innerHTML = `

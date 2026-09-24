@@ -212,25 +212,25 @@ Once a function or logic path is marked **PROTECTED**, it must not be refactored
 *   **Protected:** YES
 
 ## 12. TRANSACTION LOG FILTERS & SEARCH
-### Transaction Log Filter State
+### Transaction Log Filter State & Search State Persistence
 *   **Module:** `ui-controller.js`
 *   **Rule:** Maintained in central `txLogFilters` state object preserving period, type, branch, source, partner, and search query during user navigation and real-time Firestore updates.
 *   **Status:** PASS
 *   **Protected:** YES
 
-### Transaction Log Search
+### Transaction Log Partial Text Search
 *   **Module:** `accounting-service.js` / `ui-controller.js`
-*   **Rule:** Performs null-safe, case-insensitive multi-field search across label, partner, branch, source, category, ID, amount, and date.
+*   **Rule:** Performs null-safe, trimmed, case-insensitive partial text search across label, description, branch, source, sourceType, partner, partnerName, expenseCategory, accountingGroup, referenceNumber, transactionDate, date, amount, and ID.
 *   **Status:** PASS
 *   **Protected:** YES
 
-### Transaction Log Period Filter
-*   **Module:** `accounting-service.js`
-*   **Rule:** Supports Today, Last 7 Days, This Month, This Year, Custom Range, and All Time based on transaction business date.
+### Transaction Log Search Event Binding
+*   **Module:** `ui-controller.js`
+*   **Rule:** Listens to `input` events on `#txLogSearch` for real-time filtering without requiring Enter, maintaining cursor focus and input state seamlessly.
 *   **Status:** PASS
 *   **Protected:** YES
 
-### Transaction Log Combined Filters
+### Transaction Log Combined Search + Filters
 *   **Module:** `accounting-service.js` / `dashboard-renderer.js`
 *   **Rule:** Evaluates Period, Type, Branch, Source, Partner, and Search sequentially, showing accurate `Showing X of Y transactions` count and empty result handling.
 *   **Status:** PASS

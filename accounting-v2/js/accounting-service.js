@@ -71,18 +71,38 @@ export const AccountingService = {
         }
         
         if (filters.search && filters.search.trim() !== '') {
-            const s = filters.search.trim().toLowerCase();
-            result = result.filter(l => {
-                const labelMatch = l.label && l.label.toLowerCase().includes(s);
-                const partnerMatch = (l.partnerName && l.partnerName.toLowerCase().includes(s)) || (l.partner && l.partner.toLowerCase().includes(s));
-                const branchMatch = l.branch && l.branch.toLowerCase().includes(s);
-                const sourceMatch = (l.source && l.source.toLowerCase().includes(s)) || (l.sourceType && l.sourceType.toLowerCase().includes(s));
-                const catMatch = l.expenseCategory && l.expenseCategory.toLowerCase().includes(s);
-                const idMatch = l.id && l.id.toLowerCase().includes(s);
-                const amtMatch = l.amount !== undefined && l.amount !== null && l.amount.toString().includes(s);
-                const userMatch = l.createdBy && l.createdBy.toLowerCase().includes(s);
-                const dateMatch = l.date && l.date.toLowerCase().includes(s);
-                return labelMatch || partnerMatch || branchMatch || sourceMatch || catMatch || idMatch || amtMatch || userMatch || dateMatch;
+            const query = filters.search.trim().toLowerCase();
+            result = result.filter(log => {
+                if (!log) return false;
+                const rawObj = log.raw || {};
+                const searchableText = [
+                    log.label,
+                    log.description,
+                    log.branch,
+                    log.source,
+                    log.sourceType,
+                    log.partner,
+                    log.partnerName,
+                    log.expenseCategory,
+                    log.accountingGroup,
+                    log.referenceNumber,
+                    log.transactionDate,
+                    log.date,
+                    log.id,
+                    log.createdBy,
+                    rawObj.label,
+                    rawObj.description,
+                    rawObj.partner,
+                    rawObj.partnerName,
+                    rawObj.branch,
+                    rawObj.source,
+                    log.amount !== undefined && log.amount !== null ? log.amount.toString() : null
+                ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+
+                return searchableText.includes(query);
             });
         }
         

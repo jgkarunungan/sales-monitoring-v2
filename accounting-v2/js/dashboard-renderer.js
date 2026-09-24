@@ -487,7 +487,7 @@ export const DashboardRenderer = {
                 </div>
 
                 <!-- TABLE CONTAINER -->
-                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div id="txLogTableContainer" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     ${filtered.length === 0 ? `
                         <div class="p-12 text-center text-slate-400 italic font-medium">
                             No transactions match the current filters.
