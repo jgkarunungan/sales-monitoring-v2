@@ -208,6 +208,31 @@ export const UIController = {
             });
         }
 
+        document.querySelectorAll('[data-recency-search]').forEach(row => {
+            row.addEventListener('click', () => {
+                const partnerName = row.getAttribute('data-recency-partner');
+                const branchName = row.getAttribute('data-recency-branch');
+                const sourceName = row.getAttribute('data-recency-source');
+                const searchVal = row.getAttribute('data-recency-search');
+
+                this.txLogFilters.period = 'All Time';
+                if (partnerName) {
+                    this.txLogFilters.partner = partnerName;
+                    this.txLogFilters.branch = 'All';
+                    this.txLogFilters.source = 'All';
+                    this.txLogFilters.search = '';
+                } else if (branchName && sourceName) {
+                    this.txLogFilters.branch = branchName;
+                    this.txLogFilters.source = sourceName;
+                    this.txLogFilters.partner = 'All';
+                    this.txLogFilters.search = '';
+                } else if (searchVal) {
+                    this.txLogFilters.search = searchVal;
+                }
+                this.refreshView();
+            });
+        });
+
         this.bindTxRowClickListeners();
     },
 

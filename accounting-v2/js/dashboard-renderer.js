@@ -342,6 +342,9 @@ export const DashboardRenderer = {
         const logs = DataService.normalizedLogs || [];
         const totalDatasetCount = logs.length;
 
+        // Calculate all-time collection recency summary across all normalized logs
+        const recencyRows = AccountingService.calculateCollectionRecency(logs, DataService.incomeSources, DataService.getPartners());
+
         const currentFilters = {
             period: filters.period || 'This Month',
             type: filters.type || 'All',
@@ -362,6 +365,72 @@ export const DashboardRenderer = {
 
         return `
             <div class="space-y-6">
+                <!-- COLLECTION RECENCY SUMMARY PANEL -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                        <div>
+                            <h3 class="font-black text-sm uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                                <span>🗓️</span> DAYS SINCE LAST COLLECTION (COLLECTION RECENCY)
+                            </h3>
+                            <p class="text-[11px] text-slate-400 font-medium mt-0.5">Summary of latest income collection activity calculated across complete all-time transaction history.</p>
+                        </div>
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">${recencyRows.length} SOURCES TRACKED</div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
+                                    <th class="p-3">Source</th>
+                                    <th class="p-3">Location / Branch</th>
+                                    <th class="p-3">Last Collection Date</th>
+                                    <th class="p-3 text-center">Days Since Collection</th>
+                                    <th class="p-3 text-right">Last Collection Amount</th>
+                                    <th class="p-3 text-center">Status</th>
+                                    <th class="p-3 text-center">Inspect</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                ${recencyRows.map(r => {
+                                    const statusBadgeClass = {
+                                        'TODAY': 'bg-emerald-100 text-emerald-800 border-emerald-300',
+                                        'RECENT': 'bg-teal-100 text-teal-800 border-teal-200',
+                                        '4-7 DAYS': 'bg-blue-100 text-blue-800 border-blue-200',
+                                        'OVER 7 DAYS': 'bg-amber-100 text-amber-800 border-amber-300',
+                                        'OVER 14 DAYS': 'bg-orange-100 text-orange-800 border-orange-300',
+                                        'OVER 30 DAYS': 'bg-red-100 text-red-800 border-red-300',
+                                        'NO COLLECTION YET': 'bg-slate-100 text-slate-600 border-slate-200',
+                                        'FUTURE-DATED': 'bg-purple-100 text-purple-800 border-purple-300'
+                                    }[r.status] || 'bg-slate-100 text-slate-600 border-slate-200';
+
+                                    return `
+                                        <tr class="hover:bg-slate-50 font-medium transition-colors cursor-pointer group"
+                                            data-recency-search="${safeText(r.partnerName || r.location || r.source)}"
+                                            data-recency-branch="${safeText(r.branch)}"
+                                            data-recency-source="${safeText(r.source)}"
+                                            data-recency-partner="${safeText(r.partnerName || '')}">
+                                            <td class="p-3 font-bold text-slate-800">${safeText(r.displayName || r.source)}</td>
+                                            <td class="p-3 text-slate-600">${safeText(r.location || r.branch)}</td>
+                                            <td class="p-3 font-mono text-slate-500">${safeText(r.lastCollectionDate)}</td>
+                                            <td class="p-3 text-center font-bold text-slate-900 font-mono">${safeText(r.daysSinceText)}</td>
+                                            <td class="p-3 text-right font-black text-slate-900 font-mono">
+                                                ${r.lastAmount !== null ? money(r.lastAmount) : '—'}
+                                                ${r.lastDayTotal !== null && r.lastDayTotal !== r.lastAmount ? `<span class="block text-[9px] text-slate-400 font-normal">Day total: ${money(r.lastDayTotal)}</span>` : ''}
+                                            </td>
+                                            <td class="p-3 text-center">
+                                                <span class="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${statusBadgeClass}">${safeText(r.status)}</span>
+                                            </td>
+                                            <td class="p-3 text-center">
+                                                <span class="text-[9px] font-bold uppercase text-blue-600 group-hover:underline">Filter Log 🔍</span>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <!-- CONTROLS CONTAINER -->
                 <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                     <!-- TOP ROW: Search, Tally & Clear -->

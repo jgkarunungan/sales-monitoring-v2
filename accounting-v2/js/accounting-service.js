@@ -89,6 +89,192 @@ export const AccountingService = {
         return result;
     },
 
+    calculateCollectionRecency(normalizedLogs = [], enrolledSources = [], configuredPartners = []) {
+        const incomeLogs = (normalizedLogs || []).filter(l => l && l.type && l.type.toLowerCase() === "income");
+
+        const calculateDaysSince = (dateVal) => {
+            if (!dateVal) return { days: 9999, text: '—', status: 'NO COLLECTION YET', formattedDate: 'No collection yet' };
+
+            const now = new Date();
+            const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+            let targetDate = null;
+            if (typeof dateVal === 'number') {
+                targetDate = new Date(dateVal);
+            } else {
+                targetDate = new Date(dateVal);
+            }
+
+            if (isNaN(targetDate.getTime())) {
+                return { days: 9999, text: '—', status: 'NO COLLECTION YET', formattedDate: 'No collection yet' };
+            }
+
+            const targetLocal = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+            const diffMs = todayLocal.getTime() - targetLocal.getTime();
+            const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+            const options = { month: 'short', day: 'numeric', year: 'numeric' };
+            const formattedDate = targetDate.toLocaleDateString('en-US', options);
+
+            if (diffDays < 0) {
+                return { days: -1, text: 'FUTURE-DATED', status: 'FUTURE-DATED', formattedDate };
+            } else if (diffDays === 0) {
+                return { days: 0, text: 'Today', status: 'TODAY', formattedDate };
+            } else if (diffDays === 1) {
+                return { days: 1, text: '1 day', status: 'RECENT', formattedDate };
+            } else if (diffDays <= 3) {
+                return { days: diffDays, text: `${diffDays} days`, status: 'RECENT', formattedDate };
+            } else if (diffDays <= 7) {
+                return { days: diffDays, text: `${diffDays} days`, status: '4-7 DAYS', formattedDate };
+            } else if (diffDays <= 14) {
+                return { days: diffDays, text: `${diffDays} days`, status: 'OVER 7 DAYS', formattedDate };
+            } else if (diffDays <= 30) {
+                return { days: diffDays, text: `${diffDays} days`, status: 'OVER 14 DAYS', formattedDate };
+            } else {
+                return { days: diffDays, text: `${diffDays} days`, status: 'OVER 30 DAYS', formattedDate };
+            }
+        };
+
+        const instanceMap = {};
+
+        // 1. Core Source Instances
+        const coreInstances = [
+            { branch: "Cabagñan", source: "Coffee Vendo", location: "Cabagñan", displayName: "Coffee Vendo" },
+            { branch: "Cabagñan", source: "Pisonet", location: "Cabagñan", displayName: "Pisonet" },
+            { branch: "Cabagñan", source: "PisoWiFi", location: "Cabagñan", displayName: "PisoWiFi" },
+            { branch: "Cabagñan", source: "Printing / Photocopy", location: "Cabagñan", displayName: "Printing / Photocopy" },
+            { branch: "Iraya", source: "Pisonet", location: "Iraya", displayName: "Pisonet" },
+            { branch: "Iraya", source: "PisoWiFi", location: "Iraya", displayName: "PisoWiFi" }
+        ];
+
+        coreInstances.forEach(c => {
+            const key = `${c.branch}__${c.source}__${c.location}`;
+            instanceMap[key] = {
+                key,
+                branch: c.branch,
+                source: c.source,
+                location: c.location,
+                partnerName: null,
+                displayName: c.displayName,
+                logs: []
+            };
+        });
+
+        // 2. Enrolled Sources
+        (enrolledSources || []).forEach(s => {
+            if (s && s.name) {
+                const key = s.id || `${s.branch || "Cabagñan"}__${s.name}__${s.branch || "Cabagñan"}`;
+                if (!instanceMap[key]) {
+                    instanceMap[key] = {
+                        key,
+                        branch: s.branch || "Cabagñan",
+                        source: s.name,
+                        location: s.branch || "Cabagñan",
+                        partnerName: null,
+                        displayName: s.name,
+                        logs: []
+                    };
+                }
+            }
+        });
+
+        // 3. Configured Partners
+        (configuredPartners || []).forEach(p => {
+            if (p && p.name && !OWNER_OPERATED_BRANCHES.some(b => p.name.toLowerCase().includes(b.toLowerCase()))) {
+                const key = `Partner PisoWiFi__PisoWiFi__${p.name}`;
+                if (!instanceMap[key]) {
+                    instanceMap[key] = {
+                        key,
+                        branch: "Partner PisoWiFi",
+                        source: "PisoWiFi",
+                        location: p.name,
+                        partnerName: p.name,
+                        displayName: `PisoWiFi (${p.name})`,
+                        logs: []
+                    };
+                }
+            }
+        });
+
+        // 4. Map Income Logs
+        incomeLogs.forEach(l => {
+            const location = l.partnerName || l.partner || l.branch || "Unclassified";
+            const sourceName = l.source || l.sourceType || "Unclassified";
+            const branch = l.branch || "Unclassified";
+
+            let key = null;
+            if (l.sourceId && instanceMap[l.sourceId]) {
+                key = l.sourceId;
+            } else if (branch === "Partner PisoWiFi" || (sourceName === "PisoWiFi" && !OWNER_OPERATED_BRANCHES.some(b => location.toLowerCase().includes(b.toLowerCase())))) {
+                key = `Partner PisoWiFi__PisoWiFi__${location}`;
+            } else {
+                key = `${branch}__${sourceName}__${location}`;
+            }
+
+            if (!instanceMap[key]) {
+                instanceMap[key] = {
+                    key,
+                    branch,
+                    source: sourceName,
+                    location,
+                    partnerName: branch === "Partner PisoWiFi" ? location : (l.partnerName || null),
+                    displayName: branch === "Partner PisoWiFi" ? `PisoWiFi (${location})` : sourceName,
+                    logs: []
+                };
+            }
+
+            instanceMap[key].logs.push(l);
+        });
+
+        // 5. Build Recency Rows
+        const recencyRows = Object.values(instanceMap).map(inst => {
+            const logs = inst.logs || [];
+            logs.sort((a, b) => {
+                const timeA = a.timestamp || (a.date ? new Date(a.date).getTime() : 0);
+                const timeB = b.timestamp || (b.date ? new Date(b.date).getTime() : 0);
+                return timeB - timeA;
+            });
+
+            const latestTx = logs[0] || null;
+            const lastDate = latestTx ? (latestTx.transactionDate || latestTx.date || latestTx.timestamp) : null;
+            const lastAmount = latestTx ? latestTx.amount : null;
+
+            let lastDayTotal = lastAmount;
+            if (latestTx && logs.length > 1) {
+                const latestDateStr = latestTx.date || (latestTx.timestamp ? new Date(latestTx.timestamp).toLocaleDateString() : null);
+                if (latestDateStr) {
+                    const sameDayLogs = logs.filter(l => (l.date === latestDateStr || (l.timestamp && new Date(l.timestamp).toLocaleDateString() === latestDateStr)));
+                    if (sameDayLogs.length > 1) {
+                        lastDayTotal = sameDayLogs.reduce((sum, l) => sum + (l.amount || 0), 0);
+                    }
+                }
+            }
+
+            const daysResult = calculateDaysSince(lastDate);
+
+            return {
+                key: inst.key,
+                source: inst.source,
+                branch: inst.branch,
+                location: inst.location,
+                partnerName: inst.partnerName,
+                displayName: inst.displayName,
+                lastCollectionDate: daysResult.formattedDate,
+                lastCollectionRawDate: lastDate,
+                daysSinceText: daysResult.text,
+                daysSinceNum: daysResult.days,
+                status: daysResult.status,
+                lastAmount: lastAmount,
+                lastDayTotal: lastDayTotal,
+                txCount: logs.length
+            };
+        });
+
+        recencyRows.sort((a, b) => b.daysSinceNum - a.daysSinceNum);
+
+        return recencyRows;
+    },
+
     calculateCabagnan(filteredLogs, assets) {
         const branchLogs = filteredLogs.filter(l => l.branch === "Cabagñan");
 
