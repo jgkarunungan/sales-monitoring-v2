@@ -29,14 +29,6 @@ export const RecoveryService = {
             (a.sourceName && a.sourceName.toLowerCase() === sourceName.toLowerCase())
         ));
 
-        // Default fallback if no custom assets enrolled for default Coffee Vendo
-        if (sourceAssets.length === 0 && sourceName.toLowerCase() === "coffee vendo") {
-            sourceAssets = [
-                { id: "rec_coffee_machine", name: "Coffee Vendo Machine", cost: 20000, recoveryPercent: 0.50, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 1, openingRecovered: 0, paused: false },
-                { id: "rec_metal_case", name: "Coffee Metal Case", cost: 8000, recoveryPercent: 0.50, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 2, openingRecovered: 0, paused: false }
-            ];
-        }
-
         sourceAssets.sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
 
         const processedTargets = sourceAssets.map((asset, index) => {

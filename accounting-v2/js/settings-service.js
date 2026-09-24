@@ -30,7 +30,12 @@ export const SettingsService = {
 
     async saveSettingsField(field, data) {
         try {
-            await setDoc(settingsDocRef, { [field]: data }, { merge: true });
+            const cleanData = JSON.parse(JSON.stringify(data));
+            if (field === 'assets' || field === 'recoveryTargets') {
+                await setDoc(settingsDocRef, { assets: cleanData, recoveryTargets: cleanData }, { merge: true });
+            } else {
+                await setDoc(settingsDocRef, { [field]: cleanData }, { merge: true });
+            }
         } catch (err) {
             console.error(`Error saving ${field} to Firestore:`, err);
             throw err;
@@ -281,6 +286,12 @@ export const SettingsService = {
         const fundingMode = targetData.recoveryFundingMode || "SOURCE_SELF_RECOVERY";
         const sourceName = targetData.source || targetData.sourceName || (fundingMode === "SOURCE_SELF_RECOVERY" ? "Coffee Vendo" : null);
 
+        let sourceId = targetData.sourceId || null;
+        if (!sourceId && sourceName) {
+            const matchedSrc = (DataService.incomeSources || []).find(s => s.name?.toLowerCase() === sourceName.toLowerCase());
+            if (matchedSrc) sourceId = matchedSrc.id || null;
+        }
+
         const groupTargets = assets.filter(a => !a.archived && a.branch.toLowerCase() === branch.toLowerCase() && (
             fundingMode === "SOURCE_SELF_RECOVERY" ? (a.recoveryFundingMode === "SOURCE_SELF_RECOVERY" && a.source?.toLowerCase() === sourceName?.toLowerCase()) : a.recoveryFundingMode === "BRANCH_RECOVERY"
         ));
@@ -292,7 +303,7 @@ export const SettingsService = {
             name: targetData.name,
             branch: branch,
             source: sourceName,
-            sourceId: targetData.sourceId || null,
+            sourceId: sourceId,
             cost: cost,
             recoveryPercent: recoveryPercent,
             recoveryFundingMode: fundingMode,
@@ -343,8 +354,9 @@ export const SettingsService = {
             ...before,
             name: updatedFields.name || before.name,
             branch: targetBranch,
-            source: updatedFields.source !== undefined ? updatedFields.source : (before.source || "Coffee Vendo"),
-            recoveryFundingMode: updatedFields.recoveryFundingMode !== undefined ? updatedFields.recoveryFundingMode : (before.recoveryFundingMode || "SOURCE_SELF_RECOVERY"),
+            source: updatedFields.source !== undefined ? updatedFields.source : before.source,
+            sourceId: updatedFields.sourceId !== undefined ? updatedFields.sourceId : before.sourceId,
+            recoveryFundingMode: updatedFields.recoveryFundingMode !== undefined ? updatedFields.recoveryFundingMode : before.recoveryFundingMode,
             cost: cost,
             recoveryPercent: recoveryPercent,
             openingRecovered: openingRecovered,

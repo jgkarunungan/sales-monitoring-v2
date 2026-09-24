@@ -14,10 +14,7 @@ export const DEFAULT_PARTNERS = [
     { id: "p_iraya_pisonet", name: "Iraya Pisonet", type: "Pisonet", location: "Iraya", share: 0.50, status: "Active" }
 ];
 
-export const DEFAULT_RECOVERY_ASSETS = [
-    { id: "rec_coffee_machine", name: "Coffee Vendo Machine", branch: "Cabagñan", source: "Coffee Vendo", cost: 20000, recoveryPercent: 0.50, recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 1, openingRecovered: 0, paused: false, notes: "", archived: false },
-    { id: "rec_metal_case", name: "Coffee Metal Case", branch: "Cabagñan", source: "Coffee Vendo", cost: 8000, recoveryPercent: 0.50, recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 2, openingRecovered: 0, paused: false, notes: "", archived: false }
-];
+export const DEFAULT_RECOVERY_ASSETS = [];
 
 // Central Database State Store
 export const DataService = {
@@ -99,25 +96,40 @@ export const DataService = {
                     this.settings = data;
                     this.partners = (data.partners && data.partners.length > 0) ? data.partners : DEFAULT_PARTNERS;
 
-                    const rawAssets = data.assets;
-                    if (rawAssets && Array.isArray(rawAssets) && rawAssets.length > 0) {
+                    const rawAssets = data.assets || data.recoveryTargets;
+                    if (rawAssets && Array.isArray(rawAssets)) {
                         this.assets = rawAssets.map(a => {
-                            const isCoffee = a.name?.toLowerCase().includes("coffee") || a.source === "Coffee Vendo" || a.id?.includes("coffee") || a.id?.includes("metal_case");
-                            if (isCoffee) {
-                                return {
-                                    ...a,
-                                    source: "Coffee Vendo",
-                                    recoveryFundingMode: "SOURCE_SELF_RECOVERY",
-                                    openingRecovered: (a.openingRecovered === 19000 || typeof a.openingRecovered !== 'number') ? 0 : a.openingRecovered
-                                };
-                            }
-                            return a;
-                        }).filter(a => a.name !== "Water Container" && a.id !== "rec_iraya_network");
+                            let costVal = typeof a.cost === 'number' ? a.cost : parseFloat(a.cost || a.fullCost);
+                            if (isNaN(costVal)) costVal = 0;
+
+                            let recRate = typeof a.recoveryPercent === 'number' ? a.recoveryPercent : parseFloat(a.recoveryPercent || a.recoveryRate);
+                            if (isNaN(recRate)) recRate = 0.50;
+                            if (recRate > 1.0) recRate /= 100.0;
+
+                            let openRec = typeof a.openingRecovered === 'number' ? a.openingRecovered : parseFloat(a.openingRecovered);
+                            if (isNaN(openRec) || openRec === 19000) openRec = 0;
+
+                            return {
+                                id: a.id || ('rec_' + Date.now() + Math.random().toString(36).substring(2, 7)),
+                                name: a.name || 'Unnamed Target',
+                                branch: a.branch || 'Cabagñan',
+                                source: a.source || a.sourceName || null,
+                                sourceId: a.sourceId || null,
+                                cost: costVal,
+                                recoveryPercent: recRate,
+                                recoveryFundingMode: a.recoveryFundingMode || (a.source ? "SOURCE_SELF_RECOVERY" : "BRANCH_RECOVERY"),
+                                priority: typeof a.priority === 'number' ? a.priority : (parseInt(a.priority, 10) || 1),
+                                openingRecovered: openRec,
+                                purchaseDate: a.purchaseDate || new Date().toISOString().split('T')[0],
+                                paused: a.paused === true || a.isPaused === true,
+                                archived: a.archived === true,
+                                notes: a.notes || "",
+                                createdAt: a.createdAt || Date.now(),
+                                createdBy: a.createdBy || "Admin"
+                            };
+                        });
                     } else {
-                        this.assets = [
-                            { id: "rec_coffee_machine", name: "Coffee Vendo Machine", branch: "Cabagñan", source: "Coffee Vendo", cost: 20000, recoveryPercent: 0.50, recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 1, openingRecovered: 0, paused: false, notes: "", archived: false },
-                            { id: "rec_metal_case", name: "Coffee Metal Case", branch: "Cabagñan", source: "Coffee Vendo", cost: 8000, recoveryPercent: 0.50, recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 2, openingRecovered: 0, paused: false, notes: "", archived: false }
-                        ];
+                        this.assets = [];
                     }
 
                     this.projectedExpenses = data.projectedExpenses || [];
@@ -125,10 +137,7 @@ export const DataService = {
                 } else {
                     this.settings = {};
                     this.partners = DEFAULT_PARTNERS;
-                    this.assets = [
-                        { id: "rec_coffee_machine", name: "Coffee Vendo Machine", branch: "Cabagñan", source: "Coffee Vendo", cost: 20000, recoveryPercent: 0.50, recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 1, openingRecovered: 0, paused: false, notes: "", archived: false },
-                        { id: "rec_metal_case", name: "Coffee Metal Case", branch: "Cabagñan", source: "Coffee Vendo", cost: 8000, recoveryPercent: 0.50, recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 2, openingRecovered: 0, paused: false, notes: "", archived: false }
-                    ];
+                    this.assets = [];
                     this.projectedExpenses = [];
                     this.incomeSources = [];
                 }
