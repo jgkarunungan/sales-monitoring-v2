@@ -167,8 +167,11 @@ export const SettingsService = {
 
     async updateUpcomingBill(id, updatedBill) {
         const currentBills = [...(DataService.projectedExpenses || [])];
-        const index = currentBills.findIndex(b => b.id === id);
-        if (index === -1) return;
+        const index = currentBills.findIndex(b => String(b.id) === String(id) || (b.name && String(b.name) === String(id)));
+        if (index === -1) {
+            console.error("updateUpcomingBill: Bill template not found for ID:", id);
+            return;
+        }
         const before = currentBills[index];
         currentBills[index] = { ...before, ...updatedBill };
         await this.saveSettingsField('projectedExpenses', currentBills);
@@ -179,8 +182,11 @@ export const SettingsService = {
 
     async deleteUpcomingBill(id) {
         const currentBills = [...(DataService.projectedExpenses || [])];
-        const index = currentBills.findIndex(b => b.id === id);
-        if (index === -1) return;
+        const index = currentBills.findIndex(b => String(b.id) === String(id) || (b.name && String(b.name) === String(id)));
+        if (index === -1) {
+            console.error("deleteUpcomingBill: Bill template not found for ID:", id);
+            return;
+        }
         const before = currentBills[index];
         currentBills.splice(index, 1);
         await this.saveSettingsField('projectedExpenses', currentBills);

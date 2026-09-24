@@ -132,7 +132,10 @@ export const DataService = {
                         this.assets = [];
                     }
 
-                    this.projectedExpenses = data.projectedExpenses || [];
+                    this.projectedExpenses = (data.projectedExpenses || []).map((b, idx) => ({
+                        ...b,
+                        id: (b.id !== undefined && b.id !== null) ? String(b.id) : (`bill_${idx}_${(b.name || 'tmpl').replace(/\s+/g, '_')}`)
+                    }));
                     this.incomeSources = data.incomeSources || [];
                 } else {
                     this.settings = {};

@@ -613,7 +613,11 @@ export const UIController = {
             document.querySelectorAll('[data-edit-bill]').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const id = btn.getAttribute('data-edit-bill');
-                    const bill = DataService.projectedExpenses.find(b => b.id === id);
+                    const bill = DataService.projectedExpenses.find(b => String(b.id) === String(id) || (b.name && String(b.name) === String(id)));
+                    if (!bill) {
+                        console.error("Upcoming bill template not found for ID:", id);
+                        return alert("Upcoming bill template could not be found.");
+                    }
                     this.showBillModal(bill);
                 });
             });
@@ -621,9 +625,13 @@ export const UIController = {
             document.querySelectorAll('[data-delete-bill]').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const id = btn.getAttribute('data-delete-bill');
-                    const bill = DataService.projectedExpenses.find(b => b.id === id);
+                    const bill = DataService.projectedExpenses.find(b => String(b.id) === String(id) || (b.name && String(b.name) === String(id)));
+                    if (!bill) {
+                        console.error("Upcoming bill template not found for ID:", id);
+                        return alert("Upcoming bill template could not be found.");
+                    }
                     if (confirm(`Delete this upcoming bill template (${bill.name})?\nHistorical expense transactions will remain unchanged.`)) {
-                        await SettingsService.deleteUpcomingBill(id);
+                        await SettingsService.deleteUpcomingBill(bill.id || id);
                     }
                 });
             });
@@ -631,7 +639,11 @@ export const UIController = {
             document.querySelectorAll('[data-record-bill]').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const id = btn.getAttribute('data-record-bill');
-                    const bill = DataService.projectedExpenses.find(b => b.id === id);
+                    const bill = DataService.projectedExpenses.find(b => String(b.id) === String(id) || (b.name && String(b.name) === String(id)));
+                    if (!bill) {
+                        console.error("Upcoming bill template not found for ID:", id);
+                        return alert("Upcoming bill template could not be found.");
+                    }
                     this.handleRecordBill(bill);
                 });
             });
@@ -726,7 +738,7 @@ export const UIController = {
             if (!data.name || isNaN(data.expectedAmount)) return alert("Please fill all required fields.");
 
             if (bill) {
-                await SettingsService.updateUpcomingBill(bill.id, data);
+                await SettingsService.updateUpcomingBill(bill.id || bill.name, data);
             } else {
                 await SettingsService.addUpcomingBill(data);
             }
@@ -769,7 +781,7 @@ export const UIController = {
         document.getElementById('quickPaySelect')?.addEventListener('change', (e) => {
             const billId = e.target.value;
             if (!billId) return;
-            const bill = DataService.projectedExpenses.find(b => b.id === billId);
+            const bill = DataService.projectedExpenses.find(b => String(b.id) === String(billId) || (b.name && String(b.name) === String(billId)));
             if (bill) {
                 ws.innerHTML = DashboardRenderer.renderExpenseForm();
                 this.initExpenseForm(bill);
