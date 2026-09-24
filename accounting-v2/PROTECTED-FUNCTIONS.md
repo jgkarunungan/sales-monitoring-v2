@@ -211,3 +211,34 @@ Once a function or logic path is marked **PROTECTED**, it must not be refactored
 *   **Status:** PASS
 *   **Protected:** YES
 
+## 12. TRANSACTION LOG FILTERS & SEARCH
+### Transaction Log Filter State
+*   **Module:** `ui-controller.js`
+*   **Rule:** Maintained in central `txLogFilters` state object preserving period, type, branch, source, partner, and search query during user navigation and real-time Firestore updates.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Transaction Log Search
+*   **Module:** `accounting-service.js` / `ui-controller.js`
+*   **Rule:** Performs null-safe, case-insensitive multi-field search across label, partner, branch, source, category, ID, amount, and date.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Transaction Log Period Filter
+*   **Module:** `accounting-service.js`
+*   **Rule:** Supports Today, Last 7 Days, This Month, This Year, Custom Range, and All Time based on transaction business date.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Transaction Log Combined Filters
+*   **Module:** `accounting-service.js` / `dashboard-renderer.js`
+*   **Rule:** Evaluates Period, Type, Branch, Source, Partner, and Search sequentially, showing accurate `Showing X of Y transactions` count and empty result handling.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Transaction Log Filter Persistence & Event Binding
+*   **Module:** `ui-controller.js`
+*   **Rule:** Event listeners safely rebind after DOM renders without losing active filter state or cursor focus on input controls during background Firestore snapshot updates.
+*   **Status:** PASS
+*   **Protected:** YES
+

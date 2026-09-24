@@ -338,55 +338,135 @@ export const DashboardRenderer = {
         `;
     },
 
-    renderTransactionLog() {
-        const logs = DataService.normalizedLogs;
-        const filtered = logs.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0));
+    renderTransactionLog(filters = {}) {
+        const logs = DataService.normalizedLogs || [];
+        const totalDatasetCount = logs.length;
+
+        const currentFilters = {
+            period: filters.period || 'This Month',
+            type: filters.type || 'All',
+            branch: filters.branch || 'All',
+            source: filters.source || 'All',
+            partner: filters.partner || 'All',
+            search: filters.search || '',
+            customStart: filters.customStart || null,
+            customEnd: filters.customEnd || null
+        };
+
+        const filtered = AccountingService.filterLogs(logs, currentFilters);
+        filtered.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        // Dynamically extract unique sources & partners for filter dropdowns
+        const uniqueSources = [...new Set(logs.map(l => l.source).filter(s => s && s !== 'Unclassified'))].sort();
+        const uniquePartners = [...new Set(logs.map(l => l.partnerName || l.partner).filter(p => p && p !== 'Unclassified'))].sort();
 
         return `
             <div class="space-y-6">
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center justify-between">
-                    <div class="flex gap-4">
-                        <input type="text" placeholder="Search description..." class="bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-slate-300 w-64">
-                        <select class="bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl text-xs outline-none cursor-pointer">
-                            <option>All Types</option>
-                            <option>Income</option>
-                            <option>Expense</option>
-                        </select>
+                <!-- CONTROLS CONTAINER -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                    <!-- TOP ROW: Search, Tally & Clear -->
+                    <div class="flex flex-wrap gap-4 items-center justify-between">
+                        <div class="flex-1 min-w-[280px]">
+                            <input type="text" id="txLogSearch" value="${safeText(currentFilters.search, '')}" placeholder="Search description, partner, source, branch, category..." class="w-full bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-slate-300">
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button id="btnTxLogClearFilters" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black uppercase rounded-xl transition-all">Clear Filters</button>
+                            <div id="txLogTallyDisplay" class="text-[11px] font-black text-slate-500 uppercase tracking-wider font-mono">
+                                Showing ${filtered.length} of ${totalDatasetCount} transactions
+                            </div>
+                        </div>
                     </div>
-                    <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${filtered.length} TRANSACTIONS LOADED</div>
+
+                    <!-- BOTTOM ROW: Select Filter Dropdowns -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2 border-t border-slate-100 text-xs">
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Period</label>
+                            <select id="txLogPeriod" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                <option value="This Month" ${currentFilters.period === 'This Month' ? 'selected' : ''}>This Month</option>
+                                <option value="Today" ${currentFilters.period === 'Today' ? 'selected' : ''}>Today</option>
+                                <option value="Last 7 Days" ${currentFilters.period === 'Last 7 Days' ? 'selected' : ''}>Last 7 Days</option>
+                                <option value="This Year" ${currentFilters.period === 'This Year' || currentFilters.period === 'Year' ? 'selected' : ''}>This Year</option>
+                                <option value="All Time" ${currentFilters.period === 'All Time' ? 'selected' : ''}>All Time</option>
+                                <option value="October 2023" ${currentFilters.period === 'October 2023' ? 'selected' : ''}>October 2023</option>
+                                <option value="November 2023" ${currentFilters.period === 'November 2023' ? 'selected' : ''}>November 2023</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Type</label>
+                            <select id="txLogType" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                <option value="All" ${currentFilters.type === 'All' ? 'selected' : ''}>All Types</option>
+                                <option value="Income" ${currentFilters.type === 'Income' || currentFilters.type === 'income' ? 'selected' : ''}>Income</option>
+                                <option value="Expense" ${currentFilters.type === 'Expense' || currentFilters.type === 'expense' ? 'selected' : ''}>Expense</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Branch</label>
+                            <select id="txLogBranch" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                <option value="All" ${currentFilters.branch === 'All' ? 'selected' : ''}>All Branches</option>
+                                <option value="Cabagñan" ${currentFilters.branch === 'Cabagñan' ? 'selected' : ''}>Cabagñan</option>
+                                <option value="Iraya" ${currentFilters.branch === 'Iraya' ? 'selected' : ''}>Iraya</option>
+                                <option value="Partner PisoWiFi" ${currentFilters.branch === 'Partner PisoWiFi' ? 'selected' : ''}>Partner PisoWiFi</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Source</label>
+                            <select id="txLogSource" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                <option value="All" ${currentFilters.source === 'All' ? 'selected' : ''}>All Sources</option>
+                                ${uniqueSources.map(s => `<option value="${s}" ${currentFilters.source === s ? 'selected' : ''}>${s}</option>`).join('')}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Partner</label>
+                            <select id="txLogPartner" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                <option value="All" ${currentFilters.partner === 'All' ? 'selected' : ''}>All Partners</option>
+                                ${uniquePartners.map(p => `<option value="${p}" ${currentFilters.partner === p ? 'selected' : ''}>${p}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
+                <!-- TABLE CONTAINER -->
                 <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <table class="w-full text-left text-xs border-collapse">
-                        <thead>
-                            <tr class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
-                                <th class="p-4">Date</th>
-                                <th class="p-4">Type</th>
-                                <th class="p-4">Branch</th>
-                                <th class="p-4">Source</th>
-                                <th class="p-4 w-1/4">Description</th>
-                                <th class="p-4 text-right">Amount</th>
-                                <th class="p-4 text-center">Owner %</th>
-                                <th class="p-4 text-center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-50">
-                            ${filtered.map(l => `
-                                <tr class="hover:bg-slate-50 transition-colors group cursor-pointer" data-tx-id="${l.id}">
-                                    <td class="p-4 text-slate-500 font-mono">${l.date}</td>
-                                    <td class="p-4"><span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${l.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${l.type}</span></td>
-                                    <td class="p-4 font-bold text-slate-700">${l.branch}</td>
-                                    <td class="p-4 text-slate-500">${l.source}</td>
-                                    <td class="p-4 font-medium text-slate-800 truncate max-w-xs">${l.label}</td>
-                                    <td class="p-4 text-right font-black text-slate-900">${money(l.amount)}</td>
-                                    <td class="p-4 text-center font-bold text-slate-400">${pct(l.ownerShare)}</td>
-                                    <td class="p-4 text-center">
-                                        <button class="text-slate-300 hover:text-slate-900 font-bold uppercase text-[9px]">Details</button>
-                                    </td>
+                    ${filtered.length === 0 ? `
+                        <div class="p-12 text-center text-slate-400 italic font-medium">
+                            No transactions match the current filters.
+                        </div>
+                    ` : `
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
+                                    <th class="p-4">Date</th>
+                                    <th class="p-4">Type</th>
+                                    <th class="p-4">Branch</th>
+                                    <th class="p-4">Source</th>
+                                    <th class="p-4 w-1/4">Description</th>
+                                    <th class="p-4 text-right">Amount</th>
+                                    <th class="p-4 text-center">Owner %</th>
+                                    <th class="p-4 text-center">Actions</th>
                                 </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody id="txLogTableBody" class="divide-y divide-slate-50">
+                                ${filtered.map(l => `
+                                    <tr class="hover:bg-slate-50 transition-colors group cursor-pointer" data-tx-id="${l.id}">
+                                        <td class="p-4 text-slate-500 font-mono">${l.date}</td>
+                                        <td class="p-4"><span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${l.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${l.type}</span></td>
+                                        <td class="p-4 font-bold text-slate-700">${l.branch}</td>
+                                        <td class="p-4 text-slate-500">${l.source}</td>
+                                        <td class="p-4 font-medium text-slate-800 truncate max-w-xs">${l.label}</td>
+                                        <td class="p-4 text-right font-black text-slate-900">${money(l.amount)}</td>
+                                        <td class="p-4 text-center font-bold text-slate-400">${l.ownerShare !== null && l.ownerShare !== undefined ? pct(l.ownerShare) : 'N/A'}</td>
+                                        <td class="p-4 text-center">
+                                            <button class="text-slate-300 hover:text-slate-900 font-bold uppercase text-[9px]">Details</button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `}
                 </div>
             </div>
         `;

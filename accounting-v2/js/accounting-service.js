@@ -3,19 +3,24 @@ import { OWNER_OPERATED_BRANCHES, normalizePartnerType } from './normalization-s
 
 export const AccountingService = {
     filterLogsByPeriod(logs, period, customStart = null, customEnd = null) {
+        if (!logs) return [];
         if (period === 'All Time') return logs;
 
         const now = new Date();
         let startTime = 0;
         let endTime = now.getTime() + (2 * 24 * 60 * 60 * 1000);
 
-        if (period === 'This Month') {
+        if (period === 'Today') {
+            startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            endTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).getTime();
+        } else if (period === 'This Month') {
             startTime = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
             endTime = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime();
         } else if (period === 'Last 7 Days') {
             startTime = now.getTime() - (7 * 24 * 60 * 60 * 1000);
-        } else if (period === 'Year') {
+        } else if (period === 'This Year' || period === 'Year') {
             startTime = new Date(now.getFullYear(), 0, 1).getTime();
+            endTime = new Date(now.getFullYear(), 11, 31, 23, 59, 59).getTime();
         } else if (period === 'October 2023') {
             startTime = new Date(2023, 9, 1).getTime();
             endTime = new Date(2023, 9, 31, 23, 59, 59).getTime();
@@ -31,20 +36,26 @@ export const AccountingService = {
         }
 
         return logs.filter(l => {
-            // Include records with timestamps in range
             if (l.timestamp) {
                 return l.timestamp >= startTime && l.timestamp <= endTime;
             }
-            // Fallback for verification items or logs where dateStr was unparseable
+            if (l.date || l.transactionDate) {
+                const d = new Date(l.date || l.transactionDate);
+                if (!isNaN(d.getTime())) {
+                    return d.getTime() >= startTime && d.getTime() <= endTime;
+                }
+            }
             return false;
         });
     },
 
-    filterLogs(logs, filters) {
-        let result = this.filterLogsByPeriod(logs, filters.period);
+    filterLogs(logs, filters = {}) {
+        if (!logs) return [];
+        let result = this.filterLogsByPeriod(logs, filters.period || 'This Month', filters.customStart, filters.customEnd);
         
         if (filters.type && filters.type !== 'All') {
-            result = result.filter(l => l.type === filters.type.toLowerCase());
+            const targetType = filters.type.toLowerCase();
+            result = result.filter(l => l.type && l.type.toLowerCase() === targetType);
         }
         
         if (filters.branch && filters.branch !== 'All') {
@@ -52,15 +63,27 @@ export const AccountingService = {
         }
         
         if (filters.source && filters.source !== 'All') {
-            result = result.filter(l => l.source === filters.source);
+            result = result.filter(l => l.source === filters.source || l.sourceType === filters.source);
+        }
+
+        if (filters.partner && filters.partner !== 'All') {
+            result = result.filter(l => (l.partnerName && l.partnerName === filters.partner) || (l.partner && l.partner === filters.partner));
         }
         
-        if (filters.search) {
-            const s = filters.search.toLowerCase();
-            result = result.filter(l => 
-                l.label.toLowerCase().includes(s) || 
-                (l.partnerName && l.partnerName.toLowerCase().includes(s))
-            );
+        if (filters.search && filters.search.trim() !== '') {
+            const s = filters.search.trim().toLowerCase();
+            result = result.filter(l => {
+                const labelMatch = l.label && l.label.toLowerCase().includes(s);
+                const partnerMatch = (l.partnerName && l.partnerName.toLowerCase().includes(s)) || (l.partner && l.partner.toLowerCase().includes(s));
+                const branchMatch = l.branch && l.branch.toLowerCase().includes(s);
+                const sourceMatch = (l.source && l.source.toLowerCase().includes(s)) || (l.sourceType && l.sourceType.toLowerCase().includes(s));
+                const catMatch = l.expenseCategory && l.expenseCategory.toLowerCase().includes(s);
+                const idMatch = l.id && l.id.toLowerCase().includes(s);
+                const amtMatch = l.amount !== undefined && l.amount !== null && l.amount.toString().includes(s);
+                const userMatch = l.createdBy && l.createdBy.toLowerCase().includes(s);
+                const dateMatch = l.date && l.date.toLowerCase().includes(s);
+                return labelMatch || partnerMatch || branchMatch || sourceMatch || catMatch || idMatch || amtMatch || userMatch || dateMatch;
+            });
         }
         
         return result;

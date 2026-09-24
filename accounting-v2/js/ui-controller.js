@@ -8,6 +8,17 @@ export const UIController = {
     activeTab: 'overview',
     settingsTab: 'general',
 
+    txLogFilters: {
+        period: 'This Month',
+        type: 'All',
+        branch: 'All',
+        source: 'All',
+        partner: 'All',
+        search: '',
+        customStart: null,
+        customEnd: null
+    },
+
     init() {
         // Attach sidebar click listeners
         const navButtons = document.querySelectorAll('[data-tab]');
@@ -99,7 +110,7 @@ export const UIController = {
         switch (this.activeTab) {
             case 'overview': contentHtml = DashboardRenderer.renderOverview(); break;
             case 'transaction-entry': contentHtml = DashboardRenderer.renderTransactionEntry(); break;
-            case 'transaction-log': contentHtml = DashboardRenderer.renderTransactionLog(); break;
+            case 'transaction-log': contentHtml = DashboardRenderer.renderTransactionLog(this.txLogFilters); break;
             case 'cabagnan': contentHtml = DashboardRenderer.renderCabagnan(); break;
             case 'iraya': contentHtml = DashboardRenderer.renderIraya(); break;
             case 'partner-pisowifi': contentHtml = DashboardRenderer.renderPartnerPisoWifi(); break;
@@ -125,12 +136,144 @@ export const UIController = {
         } else if (this.activeTab === 'partner-pisowifi') {
             this.setupPartnerPisoWifiListeners();
         } else if (this.activeTab === 'transaction-log') {
-            document.querySelectorAll('[data-tx-id]').forEach(row => {
-                row.addEventListener('click', () => {
-                    const id = row.getAttribute('data-tx-id');
-                    this.showTransactionDetails(id);
-                });
+            this.setupTransactionLogListeners();
+        }
+    },
+
+    // --- TRANSACTION LOG LISTENERS & FILTERS ---
+    setupTransactionLogListeners() {
+        const searchInput = document.getElementById('txLogSearch');
+        const periodSelect = document.getElementById('txLogPeriod');
+        const typeSelect = document.getElementById('txLogType');
+        const branchSelect = document.getElementById('txLogBranch');
+        const sourceSelect = document.getElementById('txLogSource');
+        const partnerSelect = document.getElementById('txLogPartner');
+        const clearBtn = document.getElementById('btnTxLogClearFilters');
+
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                this.txLogFilters.search = e.target.value;
+                this.updateTransactionLogView();
             });
+        }
+
+        if (periodSelect) {
+            periodSelect.addEventListener('change', (e) => {
+                this.txLogFilters.period = e.target.value;
+                this.refreshView();
+            });
+        }
+
+        if (typeSelect) {
+            typeSelect.addEventListener('change', (e) => {
+                this.txLogFilters.type = e.target.value;
+                this.refreshView();
+            });
+        }
+
+        if (branchSelect) {
+            branchSelect.addEventListener('change', (e) => {
+                this.txLogFilters.branch = e.target.value;
+                this.refreshView();
+            });
+        }
+
+        if (sourceSelect) {
+            sourceSelect.addEventListener('change', (e) => {
+                this.txLogFilters.source = e.target.value;
+                this.refreshView();
+            });
+        }
+
+        if (partnerSelect) {
+            partnerSelect.addEventListener('change', (e) => {
+                this.txLogFilters.partner = e.target.value;
+                this.refreshView();
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                this.txLogFilters = {
+                    period: 'This Month',
+                    type: 'All',
+                    branch: 'All',
+                    source: 'All',
+                    partner: 'All',
+                    search: '',
+                    customStart: null,
+                    customEnd: null
+                };
+                this.refreshView();
+            });
+        }
+
+        this.bindTxRowClickListeners();
+    },
+
+    bindTxRowClickListeners() {
+        document.querySelectorAll('[data-tx-id]').forEach(row => {
+            row.addEventListener('click', () => {
+                const id = row.getAttribute('data-tx-id');
+                this.showTransactionDetails(id);
+            });
+        });
+    },
+
+    updateTransactionLogView() {
+        const logs = DataService.normalizedLogs || [];
+        const totalDatasetCount = logs.length;
+        const filtered = AccountingService.filterLogs(logs, this.txLogFilters);
+        filtered.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        const tallyEl = document.getElementById('txLogTallyDisplay');
+        if (tallyEl) {
+            tallyEl.innerText = `Showing ${filtered.length} of ${totalDatasetCount} transactions`;
+        }
+
+        const tableContainer = document.querySelector('#workspaceContent .bg-white.rounded-2xl.border.border-slate-200.shadow-sm.overflow-hidden');
+        if (tableContainer) {
+            if (filtered.length === 0) {
+                tableContainer.innerHTML = `
+                    <div class="p-12 text-center text-slate-400 italic font-medium">
+                        No transactions match the current filters.
+                    </div>
+                `;
+            } else {
+                tableContainer.innerHTML = `
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
+                                <th class="p-4">Date</th>
+                                <th class="p-4">Type</th>
+                                <th class="p-4">Branch</th>
+                                <th class="p-4">Source</th>
+                                <th class="p-4 w-1/4">Description</th>
+                                <th class="p-4 text-right">Amount</th>
+                                <th class="p-4 text-center">Owner %</th>
+                                <th class="p-4 text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="txLogTableBody" class="divide-y divide-slate-50">
+                            ${filtered.map(l => `
+                                <tr class="hover:bg-slate-50 transition-colors group cursor-pointer" data-tx-id="${l.id}">
+                                    <td class="p-4 text-slate-500 font-mono">${l.date}</td>
+                                    <td class="p-4"><span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${l.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${l.type}</span></td>
+                                    <td class="p-4 font-bold text-slate-700">${l.branch}</td>
+                                    <td class="p-4 text-slate-500">${l.source}</td>
+                                    <td class="p-4 font-medium text-slate-800 truncate max-w-xs">${l.label}</td>
+                                    <td class="p-4 text-right font-black text-slate-900">₱${l.amount.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                    <td class="p-4 text-center font-bold text-slate-400">${l.ownerShare !== null && l.ownerShare !== undefined ? (l.ownerShare * 100).toFixed(0) + '%' : 'N/A'}</td>
+                                    <td class="p-4 text-center">
+                                        <button class="text-slate-300 hover:text-slate-900 font-bold uppercase text-[9px]">Details</button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+            this.bindTxRowClickListeners();
         }
     },
 
