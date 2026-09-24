@@ -1586,7 +1586,7 @@ export const DashboardRenderer = {
                     <div class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
                         <div class="flex justify-between items-center mb-8">
                             <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight">Partner Management</h3>
-                            ${isAdmin ? `<button class="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg">Add Partner</button>` : ''}
+                            ${isAdmin ? `<button id="btnAddPartner" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-slate-800 transition-colors">Add Partner</button>` : ''}
                         </div>
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-xs border-collapse">
@@ -1594,6 +1594,7 @@ export const DashboardRenderer = {
                                     <tr class="bg-slate-50 text-[9px] font-black text-slate-400 uppercase border-b border-slate-100">
                                         <th class="p-4">Name</th>
                                         <th class="p-4">Type</th>
+                                        <th class="p-4">Location</th>
                                         <th class="p-4 text-center">Owner Share</th>
                                         <th class="p-4 text-center">Partner Share</th>
                                         <th class="p-4 text-center">Status</th>
@@ -1601,15 +1602,19 @@ export const DashboardRenderer = {
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-50">
-                                    ${DataService.partners.map((p, idx) => `
+                                    ${DataService.getPartners().map((p, idx) => `
                                         <tr>
                                             <td class="p-4 font-bold text-slate-800">${p.name}</td>
-                                            <td class="p-4 text-slate-500 uppercase font-bold text-[9px]">${p.type}</td>
+                                            <td class="p-4 text-slate-500 uppercase font-bold text-[9px]">${p.type || 'PisoWiFi'}</td>
+                                            <td class="p-4 text-slate-500 font-bold text-[9px]">${p.location || p.name}</td>
                                             <td class="p-4 text-center font-black text-slate-900">${pct(p.share)}</td>
                                             <td class="p-4 text-center font-black text-slate-400">${pct(1 - p.share)}</td>
-                                            <td class="p-4 text-center"><span class="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full font-black uppercase text-[8px]">Active</span></td>
-                                            <td class="p-4 text-right">
-                                                ${isAdmin ? `<button class="text-slate-300 hover:text-slate-900 font-bold uppercase text-[9px] transition-colors">Edit</button>` : '<span class="text-slate-200">Locked</span>'}
+                                            <td class="p-4 text-center"><span class="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full font-black uppercase text-[8px]">${p.status || 'Active'}</span></td>
+                                            <td class="p-4 text-right space-x-2">
+                                                ${isAdmin ? `
+                                                    <button data-edit-partner-share="${p.name}" class="text-slate-400 hover:text-slate-900 font-bold uppercase text-[9px] transition-colors">Edit Share</button>
+                                                    <button data-delete-partner="${idx}" class="text-red-300 hover:text-red-600 font-bold uppercase text-[9px] transition-colors">Delete</button>
+                                                ` : '<span class="text-slate-200">Locked</span>'}
                                             </td>
                                         </tr>
                                     `).join('')}
@@ -1839,6 +1844,66 @@ export const DashboardRenderer = {
 
                 <div class="flex justify-end gap-3 pt-2">
                     <button id="btnSavePartnerShare" class="bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-xl font-black uppercase text-xs shadow-lg transition-all">Save Share Agreement</button>
+                    <button class="bg-white border border-slate-200 text-slate-500 px-6 py-3 rounded-xl font-black uppercase text-xs" onclick="window.UIController.closeModal()">Cancel</button>
+                </div>
+            </div>
+        `;
+    },
+
+    renderAddPartnerModal() {
+        return `
+            <div class="p-8 space-y-6">
+                <div class="flex justify-between items-center border-b pb-4">
+                    <div>
+                        <h2 class="text-xl font-black text-slate-800 uppercase">Add Partner</h2>
+                        <p class="text-xs text-slate-400 font-bold mt-0.5">Register a new partner into active configuration</p>
+                    </div>
+                    <button class="text-slate-400 hover:text-slate-600 text-lg font-bold" onclick="window.UIController.closeModal()">✕</button>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">Partner Name *</label>
+                        <input type="text" id="addPartnerName" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold text-slate-800" placeholder="e.g. Partner Persistence Test">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">Location / Branch</label>
+                            <input type="text" id="addPartnerLocation" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold text-slate-800" placeholder="e.g. Malilipot">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">Type</label>
+                            <select id="addPartnerType" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold text-slate-800">
+                                <option value="PisoWiFi">PisoWiFi</option>
+                                <option value="Pisonet">Pisonet</option>
+                                <option value="Branch">Branch</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">INITIAL SHARE AGREEMENT</div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-[10px] font-black text-slate-500 uppercase mb-1">Owner Share (%) *</label>
+                                <input type="number" id="addOwnerSharePct" min="0" max="100" step="1" class="w-full bg-white border border-slate-200 p-3 rounded-xl text-lg font-black text-slate-800 outline-none focus:ring-2 focus:ring-slate-300" placeholder="30">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-black text-slate-500 uppercase mb-1">Partner Share (%)</label>
+                                <input type="number" id="addPartnerSharePct" readonly class="w-full bg-slate-100 border border-slate-200 p-3 rounded-xl text-lg font-black text-slate-500 outline-none" placeholder="70">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">Notes (Optional)</label>
+                        <input type="text" id="addPartnerNotes" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm font-bold text-slate-800" placeholder="Additional details...">
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-2">
+                    <button id="btnSaveNewPartner" class="bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-xl font-black uppercase text-xs shadow-lg transition-all">Save Partner</button>
                     <button class="bg-white border border-slate-200 text-slate-500 px-6 py-3 rounded-xl font-black uppercase text-xs" onclick="window.UIController.closeModal()">Cancel</button>
                 </div>
             </div>

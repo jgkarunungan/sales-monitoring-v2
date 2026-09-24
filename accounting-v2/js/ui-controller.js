@@ -583,6 +583,30 @@ export const UIController = {
             });
         });
 
+        if (this.settingsTab === 'partners') {
+            document.getElementById('btnAddPartner')?.addEventListener('click', () => this.showAddPartnerModal());
+
+            document.querySelectorAll('[data-edit-partner-share]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const partnerName = btn.getAttribute('data-edit-partner-share');
+                    this.showEditPartnerShareModal(partnerName);
+                });
+            });
+
+            document.querySelectorAll('[data-delete-partner]').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const idxStr = btn.getAttribute('data-delete-partner');
+                    const idx = parseInt(idxStr, 10);
+                    const partners = DataService.getPartners();
+                    const targetPartner = partners[idx];
+                    if (!targetPartner) return;
+                    if (confirm(`Delete partner '${targetPartner.name}' from active settings?`)) {
+                        await SettingsService.deletePartner(idx);
+                    }
+                });
+            });
+        }
+
         if (this.settingsTab === 'bills') {
             document.getElementById('btnAddBill')?.addEventListener('click', () => this.showBillModal());
 
@@ -612,6 +636,76 @@ export const UIController = {
                 });
             });
         }
+    },
+
+    showAddPartnerModal() {
+        this.openModal(DashboardRenderer.renderAddPartnerModal());
+
+        const ownerInput = document.getElementById('addOwnerSharePct');
+        const partnerInput = document.getElementById('addPartnerSharePct');
+        const nameInput = document.getElementById('addPartnerName');
+        const locationInput = document.getElementById('addPartnerLocation');
+        const typeInput = document.getElementById('addPartnerType');
+        const notesInput = document.getElementById('addPartnerNotes');
+        const saveBtn = document.getElementById('btnSaveNewPartner');
+
+        if (ownerInput && partnerInput) {
+            ownerInput.addEventListener('input', () => {
+                let val = parseFloat(ownerInput.value);
+                if (isNaN(val)) {
+                    partnerInput.value = '';
+                    return;
+                }
+                if (val < 0) val = 0;
+                if (val > 100) val = 100;
+                partnerInput.value = (100 - val).toFixed(0);
+            });
+        }
+
+        saveBtn?.addEventListener('click', async () => {
+            const name = nameInput?.value.trim();
+            const location = locationInput?.value.trim();
+            const type = typeInput?.value || 'PisoWiFi';
+            const ownerPctVal = parseFloat(ownerInput?.value);
+            const notes = notesInput?.value.trim() || '';
+
+            if (!name) {
+                return alert("Please enter a Partner Name.");
+            }
+
+            if (isNaN(ownerPctVal) || ownerPctVal < 0 || ownerPctVal > 100) {
+                return alert("Owner Share is required and must be between 0% and 100%.");
+            }
+
+            const existingPartners = DataService.getPartners() || [];
+            const isDuplicate = existingPartners.some(p => p.name && p.name.trim().toLowerCase() === name.toLowerCase());
+            if (isDuplicate) {
+                return alert(`A partner named '${name}' already exists.`);
+            }
+
+            saveBtn.disabled = true;
+            const originalText = saveBtn.innerText;
+            saveBtn.innerText = "Saving Partner...";
+
+            try {
+                const ownerShareDecimal = ownerPctVal / 100.0;
+                await SettingsService.addPartner({
+                    id: 'p_' + Date.now(),
+                    name: name,
+                    location: location || name,
+                    type: type,
+                    share: ownerShareDecimal,
+                    status: 'Active',
+                    notes: notes
+                });
+                this.closeModal();
+            } catch (err) {
+                console.error("Error adding partner:", err);
+                alert("Error adding partner: " + err.message);
+                saveBtn.disabled = false;
+                saveBtn.innerText = originalText;
+            }
+        });
     },
 
     showBillModal(bill = null) {
