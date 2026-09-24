@@ -485,6 +485,18 @@ export const DashboardRenderer = {
                         <span class="font-mono text-emerald-700 font-black">${lastCollectionAmountText}</span>
                     </div>
                 </div>
+
+                <!-- TABLE CONTAINER -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    ${filtered.length === 0 ? `
+                        <div class="p-12 text-center text-slate-400 italic font-medium">
+                            No transactions match the current filters.
+                        </div>
+                    ` : `
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
+                                    <th class="p-4">Date</th>
                                     <th class="p-4">Type</th>
                                     <th class="p-4">Branch</th>
                                     <th class="p-4">Source</th>
