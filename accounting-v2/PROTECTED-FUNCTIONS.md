@@ -242,28 +242,10 @@ Once a function or logic path is marked **PROTECTED**, it must not be refactored
 *   **Status:** PASS
 *   **Protected:** YES
 
-## 13. COLLECTION RECENCY & DAYS SINCE LAST COLLECTION
-### Collection Recency Calculation & All-Time History
-*   **Module:** `accounting-service.js`
-*   **Rule:** Computes latest income collection and calendar days since last collection for all income source instances across complete all-time history, independent of page period filter.
-*   **Status:** PASS
-*   **Protected:** YES
-
-### Source Instance Grouping & Last Collection Detection
-*   **Module:** `accounting-service.js`
-*   **Rule:** Groups collections strictly by source instance (`sourceId` or `branch + source + partnerName`), isolating distinct PisoWiFi partner locations and coffee vendo units.
-*   **Status:** PASS
-*   **Protected:** YES
-
-### Days-Since Calculation & Status Badges
-*   **Module:** `accounting-service.js` / `dashboard-renderer.js`
-*   **Rule:** Calculates calendar days difference using local browser date vs business transaction date. Handles 0 days (Today), 1 day, X days, FUTURE-DATED, and NO COLLECTION YET.
-*   **Status:** PASS
-*   **Protected:** YES
-
-### Collection Recency Real-Time Refresh & Click Inspection
-*   **Module:** `dashboard-renderer.js` / `ui-controller.js`
-*   **Rule:** Automatically updates upon real-time Firestore income additions (ignoring expenses) and allows clicking any recency row to instantly filter the Transaction Log for that source.
+## 13. DAYS SINCE LAST COLLECTION
+### Days Since Last Collection Display
+*   **Module:** `dashboard-renderer.js` / `accounting-service.js`
+*   **Rule:** Displays `Last Collection Date`, `Days Since Last Collection` (`Today`, `1 day`, `X days`, `—`), and `Last Collection Amount` inline above transaction content while keeping search and filters at top.
 *   **Status:** PASS
 *   **Protected:** YES
 
