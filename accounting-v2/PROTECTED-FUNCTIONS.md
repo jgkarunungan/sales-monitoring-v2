@@ -211,41 +211,53 @@ Once a function or logic path is marked **PROTECTED**, it must not be refactored
 *   **Status:** PASS
 *   **Protected:** YES
 
-## 12. TRANSACTION LOG FILTERS & SEARCH
-### Transaction Log Filter State & Search State Persistence
+## 12. TRANSACTION LOG V2 REBUILD & SEARCH
+### Transaction Log V2 State
 *   **Module:** `ui-controller.js`
-*   **Rule:** Maintained in central `txLogFilters` state object preserving period, type, branch, source, partner, and search query during user navigation and real-time Firestore updates.
+*   **Rule:** Maintained in one central `transactionLogState` object (`period: "All Time"`, `type: "All"`, `branch: "All"`, `source: "All"`, `partner: "All"`, `search: ""`). Default Period is "All Time".
 *   **Status:** PASS
 *   **Protected:** YES
 
-### Transaction Log Partial Text Search
+### Transaction Log V2 Query Pipeline
+*   **Module:** `ui-controller.js` / `accounting-service.js`
+*   **Rule:** Single authoritative query pipeline `applyTransactionLogQuery()` reads controls, applies structural filters and business whitelist text search, updates tally, and invokes row renderer.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Apply Filters Trigger
+*   **Module:** `ui-controller.js`
+*   **Rule:** `#btnTxLogApplyFilters` reads active dropdown controls and triggers `applyTransactionLogQuery()`.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Search Button & Enter Key Triggers
+*   **Module:** `ui-controller.js`
+*   **Rule:** `#txLogSearchButton` click and `Enter` keypress inside `#txLogSearch` call `applyTransactionLogQuery()` with `e.preventDefault()`.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Business-Field Search Whitelist
+*   **Module:** `accounting-service.js`
+*   **Rule:** Performs partial, case-insensitive text matching against explicit whitelist of business fields (`label`, `description`, `branch`, `source`, `sourceType`, `partner`, `partnerName`, `expenseCategory`, `accountingGroup`, `referenceNumber`, `transactionDate`, `date`, `amount`, and raw equivalents). Audit metadata (`createdBy`, `updatedBy`, usernames) is strictly excluded.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Transaction Row Renderer
+*   **Module:** `ui-controller.js` / `dashboard-renderer.js`
+*   **Rule:** `renderTransactionLogRows(filteredLogs)` receives the filtered array and renders rows or empty state without accessing raw logs internally.
+*   **Status:** PASS
+*   **Protected:** YES
+
+## 13. DAYS SINCE LAST COLLECTION V2
+### Last Collection Calculation & Scope Independence
 *   **Module:** `accounting-service.js` / `ui-controller.js`
-*   **Rule:** Performs null-safe, trimmed, case-insensitive partial text search across label, description, branch, source, sourceType, partner, partnerName, expenseCategory, accountingGroup, referenceNumber, transactionDate, date, amount, and ID.
+*   **Rule:** `getLastCollectionSummary(logs, context)` evaluates `type === "income"` ONLY for selected Branch, Source, and Partner scope across all time. It is completely independent from Period and Search text filters.
 *   **Status:** PASS
 *   **Protected:** YES
 
-### Transaction Log Search Event Binding
-*   **Module:** `ui-controller.js`
-*   **Rule:** Listens to `input` events on `#txLogSearch` for real-time filtering without requiring Enter, maintaining cursor focus and input state seamlessly.
-*   **Status:** PASS
-*   **Protected:** YES
-
-### Transaction Log Combined Search + Filters
-*   **Module:** `accounting-service.js` / `dashboard-renderer.js`
-*   **Rule:** Evaluates Period, Type, Branch, Source, Partner, and Search sequentially, showing accurate `Showing X of Y transactions` count and empty result handling.
-*   **Status:** PASS
-*   **Protected:** YES
-
-### Transaction Log Filter Persistence & Event Binding
-*   **Module:** `ui-controller.js`
-*   **Rule:** Event listeners safely rebind after DOM renders without losing active filter state or cursor focus on input controls during background Firestore snapshot updates.
-*   **Status:** PASS
-*   **Protected:** YES
-
-## 13. DAYS SINCE LAST COLLECTION
-### Days Since Last Collection Display
-*   **Module:** `dashboard-renderer.js` / `accounting-service.js`
-*   **Rule:** Displays `Last Collection Date`, `Days Since Last Collection` (`Today`, `1 day`, `X days`, `—`), and `Last Collection Amount` inline above transaction content while keeping search and filters at top.
+### Days Since Last Collection Calculation
+*   **Module:** `accounting-service.js`
+*   **Rule:** Calculates calendar days between local calendar Today and transaction business date boundary (`transactionDate` preferred). Displays `Today`, `1 day`, `X days`, `Future-dated`, or `—`.
 *   **Status:** PASS
 *   **Protected:** YES
 

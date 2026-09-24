@@ -2,14 +2,15 @@ import { DashboardRenderer } from './dashboard-renderer.js';
 import { DataService } from './data-service.js';
 import { SettingsService } from './settings-service.js';
 import { TransactionService } from './transaction-service.js';
+import { AccountingService } from './accounting-service.js';
 import { normalizePartnerType, OWNER_OPERATED_BRANCHES } from './normalization-service.js';
 
 export const UIController = {
     activeTab: 'overview',
     settingsTab: 'general',
 
-    txLogFilters: {
-        period: 'This Month',
+    transactionLogState: {
+        period: 'All Time',
         type: 'All',
         branch: 'All',
         source: 'All',
@@ -17,6 +18,13 @@ export const UIController = {
         search: '',
         customStart: null,
         customEnd: null
+    },
+
+    get txLogFilters() {
+        return this.transactionLogState;
+    },
+    set txLogFilters(val) {
+        this.transactionLogState = val;
     },
 
     init() {
@@ -34,6 +42,7 @@ export const UIController = {
         if (selectPeriod) {
             selectPeriod.addEventListener('change', (e) => {
                 DataService.setPeriod(e.target.value);
+                this.transactionLogState.period = e.target.value;
             });
             selectPeriod.value = DataService.currentPeriod;
         }
@@ -106,11 +115,20 @@ export const UIController = {
             }
         }
 
+        // If user is currently on transaction-log tab and active element is txLogSearch,
+        // update view dynamically without wiping workspaceContent to preserve focus and input state.
+        if (this.activeTab === 'transaction-log' && document.activeElement && document.activeElement.id === 'txLogSearch') {
+            this.applyTransactionLogQuery();
+            this.updateHeaderStatus();
+            this.updateUserSessionUI();
+            return;
+        }
+
         let contentHtml = '';
         switch (this.activeTab) {
             case 'overview': contentHtml = DashboardRenderer.renderOverview(); break;
             case 'transaction-entry': contentHtml = DashboardRenderer.renderTransactionEntry(); break;
-            case 'transaction-log': contentHtml = DashboardRenderer.renderTransactionLog(this.txLogFilters); break;
+            case 'transaction-log': contentHtml = DashboardRenderer.renderTransactionLog(this.transactionLogState); break;
             case 'cabagnan': contentHtml = DashboardRenderer.renderCabagnan(); break;
             case 'iraya': contentHtml = DashboardRenderer.renderIraya(); break;
             case 'partner-pisowifi': contentHtml = DashboardRenderer.renderPartnerPisoWifi(); break;
@@ -140,62 +158,89 @@ export const UIController = {
         }
     },
 
-    // --- TRANSACTION LOG LISTENERS & FILTERS ---
+    // --- TRANSACTION LOG V2 QUERY PIPELINE ---
+    handleSearchInput(value) {
+        this.transactionLogState.search = value || '';
+        this.applyTransactionLogQuery();
+    },
+
+    applyTransactionLogQuery() {
+        const periodEl = document.getElementById('txLogPeriod');
+        const typeEl = document.getElementById('txLogType');
+        const branchEl = document.getElementById('txLogBranch');
+        const sourceEl = document.getElementById('txLogSource');
+        const partnerEl = document.getElementById('txLogPartner');
+        const searchEl = document.getElementById('txLogSearch');
+
+        if (periodEl) this.transactionLogState.period = periodEl.value;
+        if (typeEl) this.transactionLogState.type = typeEl.value;
+        if (branchEl) this.transactionLogState.branch = branchEl.value;
+        if (sourceEl) this.transactionLogState.source = sourceEl.value;
+        if (partnerEl) this.transactionLogState.partner = partnerEl.value;
+        if (searchEl) this.transactionLogState.search = searchEl.value;
+
+        const logs = DataService.normalizedLogs || [];
+        const totalDatasetCount = logs.length;
+
+        const filteredLogs = AccountingService.filterLogs(logs, this.transactionLogState);
+        const collectionContext = AccountingService.determineCollectionContext(filteredLogs, this.transactionLogState);
+        const collectionSummary = AccountingService.getLastCollectionSummary(logs, collectionContext);
+
+        const lastDateEl = document.getElementById('txLogLastCollectionDate');
+        const daysSinceEl = document.getElementById('txLogDaysSinceLastCollection');
+        const lastAmtEl = document.getElementById('txLogLastCollectionAmount');
+
+        if (lastDateEl) lastDateEl.innerText = collectionSummary.dateText;
+        if (daysSinceEl) daysSinceEl.innerText = collectionSummary.daysSinceText;
+        if (lastAmtEl) lastAmtEl.innerText = collectionSummary.amountText;
+
+        const tallyEl = document.getElementById('txLogTallyDisplay');
+        if (tallyEl) {
+            tallyEl.innerText = `SHOWING ${filteredLogs.length} OF ${totalDatasetCount} TRANSACTIONS`;
+        }
+
+        this.renderTransactionLogRows(filteredLogs);
+    },
+
+    renderTransactionLogRows(filteredLogs = []) {
+        const tableContainer = document.getElementById('txLogTableContainer');
+        if (!tableContainer) return;
+
+        tableContainer.innerHTML = DashboardRenderer.renderTransactionLogTableHtml(filteredLogs);
+        this.bindTxRowClickListeners();
+    },
+
     setupTransactionLogListeners() {
+        const applyBtn = document.getElementById('btnTxLogApplyFilters');
+        const searchBtn = document.getElementById('txLogSearchButton');
         const searchInput = document.getElementById('txLogSearch');
-        const periodSelect = document.getElementById('txLogPeriod');
-        const typeSelect = document.getElementById('txLogType');
-        const branchSelect = document.getElementById('txLogBranch');
-        const sourceSelect = document.getElementById('txLogSource');
-        const partnerSelect = document.getElementById('txLogPartner');
         const clearBtn = document.getElementById('btnTxLogClearFilters');
 
+        if (applyBtn) {
+            applyBtn.addEventListener('click', () => {
+                this.applyTransactionLogQuery();
+            });
+        }
+
+        if (searchBtn) {
+            searchBtn.addEventListener('click', () => {
+                this.applyTransactionLogQuery();
+            });
+        }
+
         if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                this.txLogFilters.search = e.target.value;
-                this.updateTransactionLogView();
-            });
-        }
-
-        if (periodSelect) {
-            periodSelect.addEventListener('change', (e) => {
-                this.txLogFilters.period = e.target.value;
-                this.refreshView();
-            });
-        }
-
-        if (typeSelect) {
-            typeSelect.addEventListener('change', (e) => {
-                this.txLogFilters.type = e.target.value;
-                this.refreshView();
-            });
-        }
-
-        if (branchSelect) {
-            branchSelect.addEventListener('change', (e) => {
-                this.txLogFilters.branch = e.target.value;
-                this.refreshView();
-            });
-        }
-
-        if (sourceSelect) {
-            sourceSelect.addEventListener('change', (e) => {
-                this.txLogFilters.source = e.target.value;
-                this.refreshView();
-            });
-        }
-
-        if (partnerSelect) {
-            partnerSelect.addEventListener('change', (e) => {
-                this.txLogFilters.partner = e.target.value;
-                this.refreshView();
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.applyTransactionLogQuery();
+                }
             });
         }
 
         if (clearBtn) {
             clearBtn.addEventListener('click', () => {
-                this.txLogFilters = {
-                    period: 'This Month',
+                this.transactionLogState = {
+                    period: 'All Time',
                     type: 'All',
                     branch: 'All',
                     source: 'All',
@@ -215,66 +260,13 @@ export const UIController = {
         document.querySelectorAll('[data-tx-id]').forEach(row => {
             row.addEventListener('click', () => {
                 const id = row.getAttribute('data-tx-id');
-                this.showTransactionDetails(id);
+                if (id) this.showTransactionDetails(id);
             });
         });
     },
 
     updateTransactionLogView() {
-        const logs = DataService.normalizedLogs || [];
-        const totalDatasetCount = logs.length;
-        const filtered = AccountingService.filterLogs(logs, this.txLogFilters);
-        filtered.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-        const tallyEl = document.getElementById('txLogTallyDisplay');
-        if (tallyEl) {
-            tallyEl.innerText = `Showing ${filtered.length} of ${totalDatasetCount} transactions`;
-        }
-
-        const tableContainer = document.getElementById('txLogTableContainer');
-        if (tableContainer) {
-            if (filtered.length === 0) {
-                tableContainer.innerHTML = `
-                    <div class="p-12 text-center text-slate-400 italic font-medium">
-                        No transactions match the current filters.
-                    </div>
-                `;
-            } else {
-                tableContainer.innerHTML = `
-                    <table class="w-full text-left text-xs border-collapse">
-                        <thead>
-                            <tr class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
-                                <th class="p-4">Date</th>
-                                <th class="p-4">Type</th>
-                                <th class="p-4">Branch</th>
-                                <th class="p-4">Source</th>
-                                <th class="p-4 w-1/4">Description</th>
-                                <th class="p-4 text-right">Amount</th>
-                                <th class="p-4 text-center">Owner %</th>
-                                <th class="p-4 text-center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="txLogTableBody" class="divide-y divide-slate-50">
-                            ${filtered.map(l => `
-                                <tr class="hover:bg-slate-50 transition-colors group cursor-pointer" data-tx-id="${l.id}">
-                                    <td class="p-4 text-slate-500 font-mono">${l.date}</td>
-                                    <td class="p-4"><span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${l.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${l.type}</span></td>
-                                    <td class="p-4 font-bold text-slate-700">${l.branch}</td>
-                                    <td class="p-4 text-slate-500">${l.source}</td>
-                                    <td class="p-4 font-medium text-slate-800 truncate max-w-xs">${l.label}</td>
-                                    <td class="p-4 text-right font-black text-slate-900">₱${l.amount.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                                    <td class="p-4 text-center font-bold text-slate-400">${l.ownerShare !== null && l.ownerShare !== undefined ? (l.ownerShare * 100).toFixed(0) + '%' : 'N/A'}</td>
-                                    <td class="p-4 text-center">
-                                        <button class="text-slate-300 hover:text-slate-900 font-bold uppercase text-[9px]">Details</button>
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                `;
-            }
-            this.bindTxRowClickListeners();
-        }
+        this.applyTransactionLogQuery();
     },
 
     // --- PARTNER PISOWIFI LISTENERS & MODALS ---

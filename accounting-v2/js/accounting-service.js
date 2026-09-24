@@ -49,33 +49,225 @@ export const AccountingService = {
         });
     },
 
-    filterLogs(logs, filters = {}) {
+    getLogSourceIdentity(log) {
+        if (!log) return null;
+        const branch = log.branch || 'Unclassified';
+        const source = log.source || log.sourceType || 'Unclassified';
+        const partner = log.partnerName || log.partner || log.location || '';
+
+        if (partner && partner !== 'Unclassified' && partner !== branch) {
+            return `${branch}__${source}__${partner}`;
+        }
+        return `${branch}__${source}`;
+    },
+
+    resolveCollectionIdentity(activeFilters = {}, filteredRows = []) {
+        const { branch, source, partner } = activeFilters || {};
+
+        if (!filteredRows || filteredRows.length === 0) {
+            return { mode: 'EMPTY' };
+        }
+
+        const explicitBranch = (branch && branch !== 'All' && branch !== 'All Branches') ? branch : null;
+        const explicitSource = (source && source !== 'All' && source !== 'All Sources') ? source : null;
+        const explicitPartner = (partner && partner !== 'All' && partner !== 'All Partners') ? partner : null;
+
+        const uniqueBranches = [...new Set(filteredRows.map(l => l.branch).filter(b => b && b !== 'Unclassified'))];
+        const uniqueSources = [...new Set(filteredRows.map(l => l.source || l.sourceType).filter(s => s && s !== 'Unclassified'))];
+        const uniquePartners = [...new Set(filteredRows.map(l => {
+            const p = l.partnerName || l.partner || l.location;
+            if (!p || p === 'Unclassified' || p === l.branch) return null;
+            return p;
+        }).filter(Boolean))];
+
+        const resolvedBranch = explicitBranch || (uniqueBranches.length === 1 ? uniqueBranches[0] : 'All');
+        const resolvedSource = explicitSource || (uniqueSources.length === 1 ? uniqueSources[0] : 'All');
+        const resolvedPartner = explicitPartner || (uniquePartners.length === 1 ? uniquePartners[0] : 'All');
+
+        const uniqueIdentities = [...new Set(filteredRows.map(l => this.getLogSourceIdentity(l)).filter(Boolean))];
+
+        if (uniqueIdentities.length > 1 && (resolvedBranch === 'All' || resolvedSource === 'All')) {
+            return { mode: 'MULTIPLE_SOURCES' };
+        }
+
+        return {
+            mode: 'RESOLVED',
+            branch: resolvedBranch,
+            source: resolvedSource,
+            partner: resolvedPartner,
+            identityKey: uniqueIdentities.length === 1 ? uniqueIdentities[0] : null
+        };
+    },
+
+    determineCollectionContext(a, b) {
+        if (Array.isArray(a)) {
+            return this.resolveCollectionIdentity(b, a);
+        }
+        return this.resolveCollectionIdentity(a, b);
+    },
+
+    getLastCollectionSummary(logs = [], context = {}) {
+        if (!logs || logs.length === 0 || context.mode === 'EMPTY') {
+            return {
+                transaction: null,
+                dateText: 'No collection yet',
+                daysSinceText: '—',
+                amountText: '—'
+            };
+        }
+
+        if (context.mode === 'MULTIPLE_SOURCES') {
+            return {
+                transaction: null,
+                dateText: 'Multiple sources',
+                daysSinceText: '—',
+                amountText: '—'
+            };
+        }
+
+        // COLLECTION means type === "income" ONLY!
+        let incomeLogs = (logs || []).filter(l => l && l.type && String(l.type).toLowerCase() === "income");
+
+        if (context.identityKey) {
+            incomeLogs = incomeLogs.filter(l => this.getLogSourceIdentity(l) === context.identityKey);
+        } else {
+            const { branch, source, partner } = context;
+            if (branch && branch !== 'All' && branch !== 'All Branches') {
+                incomeLogs = incomeLogs.filter(l => l.branch === branch);
+            }
+            if (source && source !== 'All' && source !== 'All Sources') {
+                incomeLogs = incomeLogs.filter(l => l.source === source || l.sourceType === source);
+            }
+            if (partner && partner !== 'All' && partner !== 'All Partners') {
+                incomeLogs = incomeLogs.filter(l => (l.partnerName && l.partnerName === partner) || (l.partner && l.partner === partner) || (l.location && l.location === partner));
+            }
+        }
+
+        if (incomeLogs.length === 0) {
+            return {
+                transaction: null,
+                dateText: 'No collection yet',
+                daysSinceText: '—',
+                amountText: '—'
+            };
+        }
+
+        const getLogTime = (l) => {
+            if (l.transactionDate) {
+                const d = new Date(l.transactionDate);
+                if (!isNaN(d.getTime())) return d.getTime();
+            }
+            if (l.date) {
+                const d = new Date(l.date);
+                if (!isNaN(d.getTime())) return d.getTime();
+            }
+            if (l.timestamp) {
+                return l.timestamp;
+            }
+            return 0;
+        };
+
+        incomeLogs.sort((a, b) => getLogTime(b) - getLogTime(a));
+
+        const latest = incomeLogs[0];
+        const logTime = getLogTime(latest);
+        if (!latest || logTime === 0) {
+            return {
+                transaction: null,
+                dateText: 'No collection yet',
+                daysSinceText: '—',
+                amountText: '—'
+            };
+        }
+
+        const now = new Date();
+        const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        const targetObj = new Date(logTime);
+        const targetLocal = new Date(targetObj.getFullYear(), targetObj.getMonth(), targetObj.getDate());
+
+        const diffMs = todayLocal.getTime() - targetLocal.getTime();
+        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+        let daysSinceText = '—';
+        if (diffDays < 0) {
+            daysSinceText = 'Future-dated';
+        } else if (diffDays === 0) {
+            daysSinceText = 'Today';
+        } else if (diffDays === 1) {
+            daysSinceText = '1 day';
+        } else {
+            daysSinceText = `${diffDays} days`;
+        }
+
+        const dateText = latest.date || latest.transactionDate || targetObj.toLocaleDateString();
+        const formattedAmt = (latest.amount !== undefined && latest.amount !== null && !isNaN(latest.amount))
+            ? "₱" + Number(latest.amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})
+            : "—";
+
+        return {
+            transaction: latest,
+            dateText,
+            daysSinceText,
+            amountText: formattedAmt
+        };
+    },
+
+    filterLogs(logs = [], filters = {}) {
         if (!logs) return [];
-        let result = this.filterLogsByPeriod(logs, filters.period || 'This Month', filters.customStart, filters.customEnd);
-        
-        if (filters.type && filters.type !== 'All') {
+
+        let result = [...logs];
+
+        // 1. Period Filter (DEFAULT = 'All Time')
+        const period = filters.period || 'All Time';
+        result = this.filterLogsByPeriod(result, period, filters.customStart, filters.customEnd);
+
+        // 2. Type Filter
+        if (filters.type && filters.type !== 'All' && filters.type !== 'All Types') {
             const targetType = filters.type.toLowerCase();
             result = result.filter(l => l.type && l.type.toLowerCase() === targetType);
         }
-        
-        if (filters.branch && filters.branch !== 'All') {
+
+        // 3. Branch Filter
+        if (filters.branch && filters.branch !== 'All' && filters.branch !== 'All Branches') {
             result = result.filter(l => l.branch === filters.branch);
         }
-        
-        if (filters.source && filters.source !== 'All') {
+
+        // 4. Source Filter
+        if (filters.source && filters.source !== 'All' && filters.source !== 'All Sources') {
             result = result.filter(l => l.source === filters.source || l.sourceType === filters.source);
         }
 
-        if (filters.partner && filters.partner !== 'All') {
+        // 5. Partner Filter
+        if (filters.partner && filters.partner !== 'All' && filters.partner !== 'All Partners') {
             result = result.filter(l => (l.partnerName && l.partnerName === filters.partner) || (l.partner && l.partner === filters.partner));
         }
-        
-        if (filters.search && filters.search.trim() !== '') {
+
+        // 6. Text Search Filter (EXPLICIT WHITELIST OF BUSINESS FIELDS ONLY - NO AUDIT METADATA)
+        if (filters.search && typeof filters.search === 'string' && filters.search.trim() !== '') {
             const query = filters.search.trim().toLowerCase();
             result = result.filter(log => {
                 if (!log) return false;
                 const rawObj = log.raw || {};
-                const searchableText = [
+
+                const formatVal = (v) => {
+                    if (v === null || v === undefined) return '';
+                    if (typeof v === 'object') {
+                        if (typeof v.toDate === 'function') {
+                            return v.toDate().toLocaleDateString();
+                        }
+                        if (v instanceof Date) {
+                            return v.toLocaleDateString();
+                        }
+                        if (v.seconds !== undefined) {
+                            return new Date(v.seconds * 1000).toLocaleDateString();
+                        }
+                        return '';
+                    }
+                    return String(v);
+                };
+
+                const searchableFields = [
                     log.label,
                     log.description,
                     log.branch,
@@ -88,24 +280,55 @@ export const AccountingService = {
                     log.referenceNumber,
                     log.transactionDate,
                     log.date,
-                    log.id,
-                    log.createdBy,
                     rawObj.label,
                     rawObj.description,
                     rawObj.partner,
                     rawObj.partnerName,
                     rawObj.branch,
                     rawObj.source,
-                    log.amount !== undefined && log.amount !== null ? log.amount.toString() : null
-                ]
-                .filter(Boolean)
-                .join(" ")
-                .toLowerCase();
+                    rawObj.sourceType,
+                    rawObj.location,
+                    rawObj.notes,
+                    rawObj.category,
+                    rawObj.expenseCategory,
+                    rawObj.accountingGroup,
+                    rawObj.referenceNumber,
+                    rawObj.transactionDate,
+                    rawObj.dateStr,
+                    (log.amount !== undefined && log.amount !== null) ? log.amount : null
+                ];
+
+                const searchableText = searchableFields
+                    .map(formatVal)
+                    .filter(str => str.trim() !== '')
+                    .join(" ")
+                    .toLowerCase();
 
                 return searchableText.includes(query);
             });
         }
-        
+
+        // 7. Sort newest business date first, timestamp as tiebreaker
+        result.sort((a, b) => {
+            const getTime = (item) => {
+                if (item.transactionDate) {
+                    const d = new Date(item.transactionDate);
+                    if (!isNaN(d.getTime())) return d.getTime();
+                }
+                if (item.date) {
+                    const d = new Date(item.date);
+                    if (!isNaN(d.getTime())) return d.getTime();
+                }
+                return item.timestamp || 0;
+            };
+            const timeA = getTime(a);
+            const timeB = getTime(b);
+            if (timeA !== timeB) {
+                return timeB - timeA;
+            }
+            return (b.timestamp || 0) - (a.timestamp || 0);
+        });
+
         return result;
     },
 
@@ -742,6 +965,32 @@ export const AccountingService = {
         if (t3.allocations[0]?.status === "PAUSED" && t3.allocations[1]?.status === "ACTIVE") {
             tests.pausedTargetTest = "PASS";
         }
+
+        // Transaction Log Text Search Tests
+        const mockSearchLogs = [
+            { id: "1", timestamp: Date.now(), type: "income", branch: "Partner PisoWiFi", source: "PisoWiFi", label: "PisoWiFi Ramboanga", partnerName: "Ramboanga", amount: 5000, ownerShare: 0.40 },
+            { id: "2", timestamp: Date.now(), type: "expense", branch: "Cabagñan", source: "Coffee Vendo", label: "Electricity (ALECO)", expenseCategory: "ALECO", amount: 2500, ownerShare: 1.0 },
+            { id: "3", timestamp: Date.now(), type: "income", branch: "Cabagñan", source: "Coffee Vendo", label: "Coffee Vendo Income", amount: 1200, ownerShare: 1.0 },
+            { id: "4", timestamp: Date.now(), type: "income", branch: "Cabagñan", source: "Printing / Photocopy", label: "Printing Services", amount: 800, ownerShare: 1.0 }
+        ];
+
+        const r1 = this.filterLogs(mockSearchLogs, { period: 'All Time', search: 'ramboanga' });
+        const r2 = this.filterLogs(mockSearchLogs, { period: 'All Time', search: 'RAMBOANGA' });
+        const r3 = this.filterLogs(mockSearchLogs, { period: 'All Time', search: 'ram' });
+        const r4 = this.filterLogs(mockSearchLogs, { period: 'All Time', search: 'aleco' });
+        const r5 = this.filterLogs(mockSearchLogs, { period: 'All Time', search: 'coffee' });
+        const r6 = this.filterLogs(mockSearchLogs, { period: 'All Time', search: 'xyz-not-found' });
+        const r7 = this.filterLogs(mockSearchLogs, { period: 'All Time', branch: 'Cabagñan', search: 'aleco' });
+        const r8 = this.filterLogs(mockSearchLogs, { period: 'All Time', branch: 'Cabagñan', search: '' });
+
+        tests.textSearchRamboanga = (r1.length === 1 && r1[0].id === "1") ? "PASS" : "FAIL";
+        tests.textSearchCaseInsensitive = (r2.length === 1 && r2[0].id === "1") ? "PASS" : "FAIL";
+        tests.textSearchPartialRam = (r3.length === 1 && r3[0].id === "1") ? "PASS" : "FAIL";
+        tests.textSearchAleco = (r4.length === 1 && r4[0].id === "2") ? "PASS" : "FAIL";
+        tests.textSearchCoffee = (r5.length === 2) ? "PASS" : "FAIL";
+        tests.textSearchNotFound = (r6.length === 0) ? "PASS" : "FAIL";
+        tests.textSearchCombinedFilter = (r7.length === 1 && r7[0].id === "2") ? "PASS" : "FAIL";
+        tests.textSearchClearSearch = (r8.length === 3) ? "PASS" : "FAIL";
 
         return tests;
     }

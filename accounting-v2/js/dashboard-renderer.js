@@ -338,192 +338,176 @@ export const DashboardRenderer = {
         `;
     },
 
-    renderTransactionLog(filters = {}) {
+    renderTransactionLogTableHtml(filteredLogs = []) {
+        if (!filteredLogs || filteredLogs.length === 0) {
+            return `
+                <div class="p-12 text-center text-slate-400 italic font-medium">
+                    No transactions match the current filters.
+                </div>
+            `;
+        }
+
+        return `
+            <table class="w-full text-left text-xs border-collapse">
+                <thead>
+                    <tr class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
+                        <th class="p-4">Date</th>
+                        <th class="p-4">Type</th>
+                        <th class="p-4">Branch</th>
+                        <th class="p-4">Source</th>
+                        <th class="p-4 w-1/4">Description</th>
+                        <th class="p-4 text-right">Amount</th>
+                        <th class="p-4 text-center">Owner %</th>
+                        <th class="p-4 text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="txLogTableBody" class="divide-y divide-slate-50">
+                    ${filteredLogs.map(l => {
+                        const formattedAmt = (l.amount !== undefined && l.amount !== null && !isNaN(l.amount))
+                            ? "₱" + Number(l.amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})
+                            : "₱0.00";
+                        const formattedOwner = (l.ownerShare !== null && l.ownerShare !== undefined && !isNaN(l.ownerShare))
+                            ? (Number(l.ownerShare) * 100).toFixed(0) + '%'
+                            : 'N/A';
+                        return `
+                            <tr class="hover:bg-slate-50 transition-colors group cursor-pointer" data-tx-id="${l.id || ''}">
+                                <td class="p-4 text-slate-500 font-mono">${l.date || '—'}</td>
+                                <td class="p-4"><span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${(l.type || '').toLowerCase() === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${l.type || 'unknown'}</span></td>
+                                <td class="p-4 font-bold text-slate-700">${l.branch || 'Unclassified'}</td>
+                                <td class="p-4 text-slate-500">${l.source || 'Unclassified'}</td>
+                                <td class="p-4 font-medium text-slate-800 truncate max-w-xs">${l.label || 'No Label'}</td>
+                                <td class="p-4 text-right font-black text-slate-900">${formattedAmt}</td>
+                                <td class="p-4 text-center font-bold text-slate-400">${formattedOwner}</td>
+                                <td class="p-4 text-center">
+                                    <button class="text-slate-300 hover:text-slate-900 font-bold uppercase text-[9px]">Details</button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+        `;
+    },
+
+    renderTransactionLog(state = {}) {
         const logs = DataService.normalizedLogs || [];
         const totalDatasetCount = logs.length;
 
-        const currentFilters = {
-            period: filters.period || 'This Month',
-            type: filters.type || 'All',
-            branch: filters.branch || 'All',
-            source: filters.source || 'All',
-            partner: filters.partner || 'All',
-            search: filters.search || '',
-            customStart: filters.customStart || null,
-            customEnd: filters.customEnd || null
+        const currentState = {
+            period: state.period || 'All Time',
+            type: state.type || 'All',
+            branch: state.branch || 'All',
+            source: state.source || 'All',
+            partner: state.partner || 'All',
+            search: state.search || '',
+            customStart: state.customStart || null,
+            customEnd: state.customEnd || null
         };
 
-        const filtered = AccountingService.filterLogs(logs, currentFilters);
-        filtered.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const filtered = AccountingService.filterLogs(logs, currentState);
 
-        // Dynamically extract unique sources & partners for filter dropdowns
-        const uniqueSources = [...new Set(logs.map(l => l.source).filter(s => s && s !== 'Unclassified'))].sort();
-        const uniquePartners = [...new Set(logs.map(l => l.partnerName || l.partner).filter(p => p && p !== 'Unclassified'))].sort();
+        // Dynamically extract unique branches, sources & partners for filter dropdowns
+        const dynamicBranches = [...new Set(logs.map(l => l.branch).filter(b => b && b !== 'Unclassified'))].sort();
+        const dynamicSources = [...new Set(logs.map(l => l.source).filter(s => s && s !== 'Unclassified'))].sort();
+        const dynamicPartners = [...new Set(logs.map(l => l.partnerName || l.partner).filter(p => p && p !== 'Unclassified'))].sort();
 
-        // Calculate all-time last collection info for selected scope
-        const allIncomeLogs = logs.filter(l => l && l.type && l.type.toLowerCase() === "income");
-        let matchingIncomeLogs = allIncomeLogs;
-
-        if (currentFilters.branch && currentFilters.branch !== 'All') {
-            matchingIncomeLogs = matchingIncomeLogs.filter(l => l.branch === currentFilters.branch);
-        }
-        if (currentFilters.source && currentFilters.source !== 'All') {
-            matchingIncomeLogs = matchingIncomeLogs.filter(l => l.source === currentFilters.source || l.sourceType === currentFilters.source);
-        }
-        if (currentFilters.partner && currentFilters.partner !== 'All') {
-            matchingIncomeLogs = matchingIncomeLogs.filter(l => (l.partnerName && l.partnerName === currentFilters.partner) || (l.partner && l.partner === currentFilters.partner));
-        }
-
-        matchingIncomeLogs.sort((a, b) => {
-            const timeA = a.timestamp || (a.date ? new Date(a.date).getTime() : 0);
-            const timeB = b.timestamp || (b.date ? new Date(b.date).getTime() : 0);
-            return timeB - timeA;
-        });
-
-        const latestIncomeTx = matchingIncomeLogs[0] || null;
-
-        const formatDaysSince = (dateVal) => {
-            if (!dateVal) return '—';
-            const now = new Date();
-            const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            let targetDate = new Date(dateVal);
-            if (isNaN(targetDate.getTime())) return '—';
-            const targetLocal = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
-            const diffDays = Math.round((todayLocal.getTime() - targetLocal.getTime()) / (1000 * 60 * 60 * 24));
-
-            if (diffDays < 0) return 'FUTURE-DATED';
-            if (diffDays === 0) return 'Today';
-            if (diffDays === 1) return '1 day';
-            return `${diffDays} days`;
-        };
-
-        const lastCollectionDateText = latestIncomeTx ? (latestIncomeTx.date || (latestIncomeTx.timestamp ? new Date(latestIncomeTx.timestamp).toLocaleDateString() : 'No collection yet')) : 'No collection yet';
-        const daysSinceText = latestIncomeTx ? formatDaysSince(latestIncomeTx.transactionDate || latestIncomeTx.date || latestIncomeTx.timestamp) : '—';
-        const lastCollectionAmountText = latestIncomeTx ? money(latestIncomeTx.amount) : '—';
+        // Calculate Last Collection Summary based on selected Branch, Source, Partner scope
+        const collectionContext = AccountingService.determineCollectionContext(filtered, currentState);
+        const collectionSummary = AccountingService.getLastCollectionSummary(logs, collectionContext);
 
         return `
             <div class="space-y-6">
-                <!-- CONTROLS CONTAINER (TOP AT PAGE) -->
+                <!-- CONTROLS CONTAINER (TOP OF PAGE) -->
                 <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                    <!-- TOP ROW: Search, Tally & Clear -->
+                    <!-- TOP ROW: Search Input, Search Button, Clear Filters & Tally Display -->
                     <div class="flex flex-wrap gap-4 items-center justify-between">
-                        <div class="flex-1 min-w-[280px]">
-                            <input type="text" id="txLogSearch" value="${safeText(currentFilters.search, '')}" placeholder="Search description, partner, source, branch, category..." class="w-full bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-slate-300">
+                        <div class="flex-1 min-w-[280px] flex gap-2">
+                            <input type="text" id="txLogSearch" value="${safeText(currentState.search, '')}" placeholder="Search description, partner, source, branch, category..." class="flex-1 bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-slate-300">
+                            <button id="txLogSearchButton" class="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1">🔍 Search</button>
                         </div>
                         <div class="flex items-center gap-3">
                             <button id="btnTxLogClearFilters" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black uppercase rounded-xl transition-all">Clear Filters</button>
                             <div id="txLogTallyDisplay" class="text-[11px] font-black text-slate-500 uppercase tracking-wider font-mono">
-                                Showing ${filtered.length} of ${totalDatasetCount} transactions
+                                SHOWING ${filtered.length} OF ${totalDatasetCount} TRANSACTIONS
                             </div>
                         </div>
                     </div>
 
-                    <!-- BOTTOM ROW: Select Filter Dropdowns -->
-                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2 border-t border-slate-100 text-xs">
-                        <div>
-                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Period</label>
-                            <select id="txLogPeriod" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
-                                <option value="This Month" ${currentFilters.period === 'This Month' ? 'selected' : ''}>This Month</option>
-                                <option value="Today" ${currentFilters.period === 'Today' ? 'selected' : ''}>Today</option>
-                                <option value="Last 7 Days" ${currentFilters.period === 'Last 7 Days' ? 'selected' : ''}>Last 7 Days</option>
-                                <option value="This Year" ${currentFilters.period === 'This Year' || currentFilters.period === 'Year' ? 'selected' : ''}>This Year</option>
-                                <option value="All Time" ${currentFilters.period === 'All Time' ? 'selected' : ''}>All Time</option>
-                                <option value="October 2023" ${currentFilters.period === 'October 2023' ? 'selected' : ''}>October 2023</option>
-                                <option value="November 2023" ${currentFilters.period === 'November 2023' ? 'selected' : ''}>November 2023</option>
-                            </select>
+                    <!-- BOTTOM ROW: Filter Dropdowns & APPLY FILTERS Button -->
+                    <div class="pt-3 border-t border-slate-100 space-y-3">
+                        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-xs">
+                            <div>
+                                <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Period</label>
+                                <select id="txLogPeriod" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                    <option value="All Time" ${currentState.period === 'All Time' ? 'selected' : ''}>All Time</option>
+                                    <option value="Today" ${currentState.period === 'Today' ? 'selected' : ''}>Today</option>
+                                    <option value="Last 7 Days" ${currentState.period === 'Last 7 Days' ? 'selected' : ''}>Last 7 Days</option>
+                                    <option value="This Month" ${currentState.period === 'This Month' ? 'selected' : ''}>This Month</option>
+                                    <option value="This Year" ${currentState.period === 'This Year' || currentState.period === 'Year' ? 'selected' : ''}>This Year</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Type</label>
+                                <select id="txLogType" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                    <option value="All" ${currentState.type === 'All' ? 'selected' : ''}>All Types</option>
+                                    <option value="Income" ${currentState.type === 'Income' || currentState.type === 'income' ? 'selected' : ''}>Income</option>
+                                    <option value="Expense" ${currentState.type === 'Expense' || currentState.type === 'expense' ? 'selected' : ''}>Expense</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Branch</label>
+                                <select id="txLogBranch" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                    <option value="All" ${currentState.branch === 'All' ? 'selected' : ''}>All Branches</option>
+                                    ${dynamicBranches.map(b => `<option value="${b}" ${currentState.branch === b ? 'selected' : ''}>${b}</option>`).join('')}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Source</label>
+                                <select id="txLogSource" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                    <option value="All" ${currentState.source === 'All' ? 'selected' : ''}>All Sources</option>
+                                    ${dynamicSources.map(s => `<option value="${s}" ${currentState.source === s ? 'selected' : ''}>${s}</option>`).join('')}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Partner</label>
+                                <select id="txLogPartner" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                    <option value="All" ${currentState.partner === 'All' ? 'selected' : ''}>All Partners</option>
+                                    ${dynamicPartners.map(p => `<option value="${p}" ${currentState.partner === p ? 'selected' : ''}>${p}</option>`).join('')}
+                                </select>
+                            </div>
                         </div>
 
-                        <div>
-                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Type</label>
-                            <select id="txLogType" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
-                                <option value="All" ${currentFilters.type === 'All' ? 'selected' : ''}>All Types</option>
-                                <option value="Income" ${currentFilters.type === 'Income' || currentFilters.type === 'income' ? 'selected' : ''}>Income</option>
-                                <option value="Expense" ${currentFilters.type === 'Expense' || currentFilters.type === 'expense' ? 'selected' : ''}>Expense</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Branch</label>
-                            <select id="txLogBranch" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
-                                <option value="All" ${currentFilters.branch === 'All' ? 'selected' : ''}>All Branches</option>
-                                <option value="Cabagñan" ${currentFilters.branch === 'Cabagñan' ? 'selected' : ''}>Cabagñan</option>
-                                <option value="Iraya" ${currentFilters.branch === 'Iraya' ? 'selected' : ''}>Iraya</option>
-                                <option value="Partner PisoWiFi" ${currentFilters.branch === 'Partner PisoWiFi' ? 'selected' : ''}>Partner PisoWiFi</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Source</label>
-                            <select id="txLogSource" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
-                                <option value="All" ${currentFilters.source === 'All' ? 'selected' : ''}>All Sources</option>
-                                ${uniqueSources.map(s => `<option value="${s}" ${currentFilters.source === s ? 'selected' : ''}>${s}</option>`).join('')}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Partner</label>
-                            <select id="txLogPartner" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
-                                <option value="All" ${currentFilters.partner === 'All' ? 'selected' : ''}>All Partners</option>
-                                ${uniquePartners.map(p => `<option value="${p}" ${currentFilters.partner === p ? 'selected' : ''}>${p}</option>`).join('')}
-                            </select>
+                        <div class="flex justify-end pt-1">
+                            <button id="btnTxLogApplyFilters" class="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase rounded-xl transition-all shadow-sm">
+                                APPLY FILTERS
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- MINIMAL COLLECTION RECENCY INFO BAR -->
+                <!-- LAST COLLECTION SUMMARY INFO BAR -->
                 <div class="bg-white px-6 py-3.5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between text-xs font-bold text-slate-700">
                     <div class="flex items-center gap-2">
                         <span class="text-slate-400 font-black uppercase text-[10px] tracking-wider">Last Collection:</span>
-                        <span class="font-mono text-slate-900">${lastCollectionDateText}</span>
+                        <span id="txLogLastCollectionDate" class="font-mono text-slate-900">${collectionSummary.dateText}</span>
                     </div>
                     <div class="flex items-center gap-2">
                         <span class="text-slate-400 font-black uppercase text-[10px] tracking-wider">Days Since Last Collection:</span>
-                        <span class="font-mono text-slate-900 font-black">${daysSinceText}</span>
+                        <span id="txLogDaysSinceLastCollection" class="font-mono text-slate-900 font-black">${collectionSummary.daysSinceText}</span>
                     </div>
                     <div class="flex items-center gap-2">
                         <span class="text-slate-400 font-black uppercase text-[10px] tracking-wider">Last Collection Amount:</span>
-                        <span class="font-mono text-emerald-700 font-black">${lastCollectionAmountText}</span>
+                        <span id="txLogLastCollectionAmount" class="font-mono text-emerald-700 font-black">${collectionSummary.amountText}</span>
                     </div>
                 </div>
 
                 <!-- TABLE CONTAINER -->
                 <div id="txLogTableContainer" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    ${filtered.length === 0 ? `
-                        <div class="p-12 text-center text-slate-400 italic font-medium">
-                            No transactions match the current filters.
-                        </div>
-                    ` : `
-                        <table class="w-full text-left text-xs border-collapse">
-                            <thead>
-                                <tr class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
-                                    <th class="p-4">Date</th>
-                                    <th class="p-4">Type</th>
-                                    <th class="p-4">Branch</th>
-                                    <th class="p-4">Source</th>
-                                    <th class="p-4 w-1/4">Description</th>
-                                    <th class="p-4 text-right">Amount</th>
-                                    <th class="p-4 text-center">Owner %</th>
-                                    <th class="p-4 text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="txLogTableBody" class="divide-y divide-slate-50">
-                                ${filtered.map(l => `
-                                    <tr class="hover:bg-slate-50 transition-colors group cursor-pointer" data-tx-id="${l.id}">
-                                        <td class="p-4 text-slate-500 font-mono">${l.date}</td>
-                                        <td class="p-4"><span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${l.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${l.type}</span></td>
-                                        <td class="p-4 font-bold text-slate-700">${l.branch}</td>
-                                        <td class="p-4 text-slate-500">${l.source}</td>
-                                        <td class="p-4 font-medium text-slate-800 truncate max-w-xs">${l.label}</td>
-                                        <td class="p-4 text-right font-black text-slate-900">${money(l.amount)}</td>
-                                        <td class="p-4 text-center font-bold text-slate-400">${l.ownerShare !== null && l.ownerShare !== undefined ? pct(l.ownerShare) : 'N/A'}</td>
-                                        <td class="p-4 text-center">
-                                            <button class="text-slate-300 hover:text-slate-900 font-bold uppercase text-[9px]">Details</button>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    `}
+                    ${this.renderTransactionLogTableHtml(filtered)}
                 </div>
             </div>
         `;
