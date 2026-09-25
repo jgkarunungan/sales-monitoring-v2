@@ -602,10 +602,18 @@ export const AccountingService = {
             ...waterfallResult.allocations
         ];
 
+        // Sum up source operating profit before self-recovery
+        let sourceOperatingProfitBeforeSelfRecovery = 0;
+        Object.keys(sourcesBreakdown).forEach(src => {
+            sourceOperatingProfitBeforeSelfRecovery += sourcesBreakdown[src].ownerOperatingProfit;
+        });
+
         return {
             branch: "Cabagñan",
             sources: sourcesBreakdown,
+            sourceOperatingProfitBeforeSelfRecovery,
             coffeeSelfRecovery,
+            sourceSelfRecoveryAllocated: coffeeSelfRecovery.allocatedTotal,
             totalSourceContribution,
             branchBills,
             otherBranchExpenses,
@@ -614,7 +622,9 @@ export const AccountingService = {
             profitBeforeRecovery,
             recoveryPool: waterfallResult.recoveryPool,
             rateUsed: waterfallResult.rateUsed,
-            allocatedTotal: coffeeSelfRecovery.allocatedTotal + waterfallResult.allocatedTotal,
+            branchWaterfallRate: waterfallResult.rateUsed,
+            branchWaterfallAllocated: waterfallResult.allocatedTotal,
+            allocatedTotal: waterfallResult.allocatedTotal,
             allocationsDetail: combinedAllocations,
             profitAfterRecovery,
             savingsContribution,

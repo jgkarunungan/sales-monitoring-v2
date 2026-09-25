@@ -124,12 +124,16 @@ export const DashboardRenderer = {
                     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-slate-800">
                         <h3 class="font-black text-xs uppercase tracking-widest text-slate-400 mb-4 border-b pb-2">Cabagñan Full Summary</h3>
                         <div class="space-y-3 text-xs">
-                            <div class="flex justify-between"><span>Source Contribution Profit</span><span class="font-bold text-emerald-600">${money(r.totalSourceContribution)}</span></div>
+                            <div class="flex justify-between text-slate-500"><span>Source Operating Profit</span><span>${money(r.sourceOperatingProfitBeforeSelfRecovery ?? r.totalSourceContribution)}</span></div>
+                            ${(r.sourceSelfRecoveryAllocated || (r.coffeeSelfRecovery && r.coffeeSelfRecovery.allocatedTotal)) ? `
+                                <div class="flex justify-between text-amber-600"><span>Coffee Vendo Self-Recovery</span><span>- ${money(r.sourceSelfRecoveryAllocated ?? r.coffeeSelfRecovery.allocatedTotal)}</span></div>
+                            ` : ''}
+                            <div class="flex justify-between border-t pt-1"><span class="font-bold text-slate-700">Source Contribution Profit</span><span class="font-bold text-emerald-600">${money(r.totalSourceContribution)}</span></div>
                             <div class="flex justify-between text-red-500"><span>Actual ALECO (Paid)</span><span>- ${money(r.branchBills.aleco.amount)}</span></div>
                             <div class="flex justify-between text-red-500"><span>Actual DCTV (Paid)</span><span>- ${money(r.branchBills.dctv.amount)}</span></div>
                             <div class="flex justify-between text-red-500"><span>Other Branch Expenses</span><span>- ${money(r.otherBranchExpenses)}</span></div>
-                            <div class="border-t pt-2 flex justify-between font-black text-sm"><span>PROFIT BEFORE RECOVERY</span><span class="text-slate-900">${money(r.profitBeforeRecovery)}</span></div>
-                            <div class="flex justify-between text-amber-600"><span>Waterfall Recovery Allocated (${r.rateUsed}%)</span><span>- ${money(r.allocatedTotal)}</span></div>
+                            <div class="border-t pt-2 flex justify-between font-black text-sm"><span>PROFIT BEFORE BRANCH RECOVERY</span><span class="text-slate-900">${money(r.profitBeforeRecovery)}</span></div>
+                            <div class="flex justify-between text-amber-600"><span>Branch Recovery Allocation (${r.branchWaterfallRate ?? r.rateUsed ?? 0}%)</span><span>- ${money(r.branchWaterfallAllocated ?? r.allocatedTotal ?? 0)}</span></div>
                             <div class="border-t pt-1 flex justify-between font-bold text-slate-700"><span>PROFIT AFTER RECOVERY</span><span>${money(r.profitAfterRecovery)}</span></div>
                             <div class="flex justify-between text-blue-600"><span>Trailing 5% Savings</span><span>- ${money(r.savingsContribution)}</span></div>
                             <div class="border-t-2 pt-2 flex justify-between font-black text-base text-emerald-700"><span>FINAL BRANCH EARNINGS</span><span>${money(r.finalBranchEarnings)}</span></div>
