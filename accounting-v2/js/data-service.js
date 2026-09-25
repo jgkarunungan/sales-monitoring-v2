@@ -61,6 +61,7 @@ export const DataService = {
     irayaResult: null,
     partnerPisoWifiResult: null,
     consolidatedResult: null,
+    allTimeSummaryResult: null,
     testSuiteResults: null,
 
     // Callbacks list
@@ -248,6 +249,8 @@ export const DataService = {
             this.partnerPisoWifiResult,
             filteredLogs
         );
+
+        this.allTimeSummaryResult = AccountingService.calculateAllTimeBusinessSummary(this.normalizedLogs);
 
         console.log("[BOOT] First render complete");
         this.notify();

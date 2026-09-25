@@ -20,6 +20,7 @@ const pct = (val) => {
 export const DashboardRenderer = {
     renderOverview() {
         const c = DataService.consolidatedResult;
+        const allTime = DataService.allTimeSummaryResult || AccountingService.calculateAllTimeBusinessSummary(DataService.normalizedLogs || []);
         if (!c) return `<div class="p-8 text-center text-slate-400 italic">Calculating business metrics...</div>`;
 
         return `
@@ -37,6 +38,7 @@ export const DashboardRenderer = {
                     <span class="text-[10px] text-slate-400 font-mono font-bold">Active View Filter: ${DataService.currentPeriod}</span>
                 </div>
 
+                <!-- Period Status Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     ${this.renderMetricCard("Cabagñan Status", money(c.cabagnanEarnings), c.cabagnanEarnings >= 0 ? "success" : "danger", `Operating result: ${c.cabagnanStatus}`, true)}
                     ${this.renderMetricCard("Iraya Status", money(c.irayaEarnings), c.irayaEarnings >= 0 ? "success" : "danger", `Operating result: ${c.irayaStatus}`, true)}
@@ -44,6 +46,70 @@ export const DashboardRenderer = {
                     ${this.renderMetricCard("Total Savings (Period)", money(c.totalSavings), "success", "Cumulative branches reserves", true)}
                 </div>
 
+                <!-- ALL-TIME BUSINESS SUMMARY SECTION -->
+                <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-4 gap-2">
+                        <div>
+                            <h3 class="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                                <span>🌐</span> ALL-TIME BUSINESS SUMMARY
+                            </h3>
+                            <p class="text-xs text-slate-400 font-medium mt-0.5">${allTime.recordedHistoryNote || 'Based on recorded transaction history. Not affected by the selected period.'}</p>
+                        </div>
+                        <div class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-mono font-black uppercase tracking-wider self-start md:self-auto">
+                            ALL RECORDED HISTORY
+                        </div>
+                    </div>
+
+                    <!-- 4 Primary Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div class="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                            <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">ALL-TIME GROSS REVENUE</div>
+                            <div class="text-xl font-black text-slate-900">${money(allTime.grossRevenue)}</div>
+                            <p class="text-[10px] text-slate-400 mt-1 font-medium">Total collections before expenses</p>
+                        </div>
+
+                        <div class="p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+                            <div class="text-[10px] font-black text-emerald-800 uppercase tracking-wider mb-1">ALL-TIME OWNER REVENUE / SHARE</div>
+                            <div class="text-xl font-black text-emerald-700">${money(allTime.ownerRevenue)}</div>
+                            <p class="text-[10px] text-emerald-600 mt-1 font-medium">Owner's share after partner split</p>
+                        </div>
+
+                        <div class="p-5 bg-red-50/50 rounded-2xl border border-red-100">
+                            <div class="text-[10px] font-black text-red-800 uppercase tracking-wider mb-1">TOTAL OPERATING COSTS</div>
+                            <div class="text-xl font-black text-red-600">${money(allTime.totalOperatingCosts)}</div>
+                            <p class="text-[10px] text-red-500 mt-1 font-medium">Actual direct, branch & shared costs</p>
+                        </div>
+
+                        <div class="p-5 bg-slate-900 text-white rounded-2xl shadow-md">
+                            <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">OPERATING PROFIT BEFORE RECOVERY & SAVINGS</div>
+                            <div class="text-xl font-black ${allTime.operatingProfitBeforeRecovery >= 0 ? 'text-emerald-400' : 'text-red-400'}">${money(allTime.operatingProfitBeforeRecovery)}</div>
+                            <p class="text-[10px] text-slate-400 mt-1 font-medium">Owner revenue minus operating costs</p>
+                        </div>
+                    </div>
+
+                    <!-- Supporting Breakdown -->
+                    <div class="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2">
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-200/60 pb-1.5">
+                            OPERATING COSTS BREAKDOWN
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-1">
+                            <div class="flex justify-between items-center">
+                                <span class="text-slate-500 font-medium">Direct Operating Costs:</span>
+                                <span class="font-bold text-slate-800">${money(allTime.directOperatingCosts)}</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-slate-500 font-medium">Branch / Shared Operating Costs:</span>
+                                <span class="font-bold text-slate-800">${money(allTime.sharedOperatingCosts)}</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-slate-500 font-medium">Unclassified Operating Costs:</span>
+                                <span class="font-bold text-slate-800">${money(allTime.unclassifiedOperatingCosts)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lower Informational Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     ${this.renderMetricCard("Active Recovery Target", DataService.cabagnanResult?.allocationsDetail?.find(a=>a.status === "ACTIVE")?.name || "None active", "warning", "First available unfinished item", false)}
                     ${this.renderMetricCard("Partner Receivable", "Review required", "warning", "See deep logs diagnostics", false)}

@@ -921,6 +921,60 @@ export const AccountingService = {
         };
     },
 
+    calculateAllTimeBusinessSummary(allLogs = []) {
+        let grossRevenue = 0;
+        let ownerRevenue = 0;
+        let directOperatingCosts = 0;
+        let sharedOperatingCosts = 0;
+        let unclassifiedOperatingCosts = 0;
+
+        allLogs.forEach(l => {
+            const isIncome = l.type && l.type.toLowerCase() === "income";
+            const isExpense = l.type && (l.type.toLowerCase() === "expense" || l.type.toLowerCase() === "outflow");
+
+            if (isIncome) {
+                grossRevenue += l.amount;
+                const ownerSharePct = (l.ownerShare !== null && l.ownerShare !== undefined) ? l.ownerShare : 1.0;
+                ownerRevenue += l.amount * ownerSharePct;
+            } else if (isExpense) {
+                const labelLower = (l.label || "").toLowerCase();
+                const catLower = (l.expenseCategory || "").toLowerCase();
+
+                // Exclude non-operating cashflows (payouts, withdrawals, debt principal)
+                const isPartnerPayout = catLower === "partner payout" || labelLower.includes("payout");
+                const isOwnerWithdrawal = catLower === "owner withdrawal" || catLower === "drawings" || labelLower.includes("withdrawal");
+                const isDebtPrincipal = catLower === "debt principal" || labelLower.includes("debt principal");
+
+                if (!isPartnerPayout && !isOwnerWithdrawal && !isDebtPrincipal) {
+                    const ownerSharePct = (l.ownerShare !== null && l.ownerShare !== undefined) ? l.ownerShare : 1.0;
+                    const ownerExpenseResp = l.amount * ownerSharePct;
+
+                    if (l.expenseScope === "Source Direct Expense") {
+                        directOperatingCosts += ownerExpenseResp;
+                    } else if (l.expenseScope === "Branch Operating Expense" || l.expenseScope === "Shared Branch Expense") {
+                        sharedOperatingCosts += ownerExpenseResp;
+                    } else {
+                        unclassifiedOperatingCosts += ownerExpenseResp;
+                    }
+                }
+            }
+        });
+
+        const totalOperatingCosts = directOperatingCosts + sharedOperatingCosts + unclassifiedOperatingCosts;
+        const operatingProfitBeforeRecovery = ownerRevenue - totalOperatingCosts;
+
+        return {
+            grossRevenue,
+            ownerRevenue,
+            directOperatingCosts,
+            sharedOperatingCosts,
+            unclassifiedOperatingCosts,
+            totalOperatingCosts,
+            operatingProfitBeforeRecovery,
+            recordedHistoryNote: "Based on recorded transaction history. Not affected by the selected period."
+        };
+    },
+
     performDuplicateCheck(normalizedLogs) {
         const stats = {
             zeroGroups: normalizedLogs.filter(l => l.branch === "Unclassified").length,
