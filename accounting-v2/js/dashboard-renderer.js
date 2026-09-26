@@ -18,10 +18,21 @@ const pct = (val) => {
 };
 
 export const DashboardRenderer = {
+    monthlyChartRange: '12 Months',
+
     renderOverview() {
         const c = DataService.consolidatedResult;
         const allTime = DataService.allTimeSummaryResult || AccountingService.calculateAllTimeBusinessSummary(DataService.normalizedLogs || []);
         if (!c) return `<div class="p-8 text-center text-slate-400 italic">Calculating business metrics...</div>`;
+
+        const monthlyData = AccountingService.calculateMonthlyBusinessPerformance(
+            DataService.normalizedLogs || [],
+            DataService.settings || {},
+            this.monthlyChartRange
+        );
+
+        const latestMonth = monthlyData.length > 0 ? monthlyData[monthlyData.length - 1] : null;
+        const prevMonth = monthlyData.length > 1 ? monthlyData[monthlyData.length - 2] : null;
 
         return `
             <div class="space-y-6">
@@ -109,6 +120,69 @@ export const DashboardRenderer = {
                     </div>
                 </div>
 
+                <!-- MONTHLY BUSINESS PERFORMANCE SECTION -->
+                <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6" id="monthlyPerformanceSection">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-4 gap-4">
+                        <div>
+                            <h3 class="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                                <span>📊</span> MONTHLY BUSINESS PERFORMANCE
+                            </h3>
+                            <p class="text-xs text-slate-400 font-medium mt-0.5">Month-to-month owner revenue, operating costs, and operating profit trend</p>
+                        </div>
+
+                        <!-- Range Selection Controls -->
+                        <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl" id="monthlyRangeControls">
+                            <button data-range="6 Months" class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${this.monthlyChartRange === '6 Months' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">6 Months</button>
+                            <button data-range="12 Months" class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${this.monthlyChartRange === '12 Months' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">12 Months</button>
+                            <button data-range="24 Months" class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${this.monthlyChartRange === '24 Months' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">24 Months</button>
+                            <button data-range="All Recorded Months" class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${this.monthlyChartRange === 'All Recorded Months' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">All Recorded</button>
+                        </div>
+                    </div>
+
+                    <!-- Month vs Previous Month Comparison Strip -->
+                    ${this.renderMonthlyComparisonStrip(latestMonth, prevMonth)}
+
+                    <!-- Chart Canvas -->
+                    <div class="relative w-full h-[320px] bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                        <canvas id="monthlyPerformanceChart" class="w-full h-full"></canvas>
+                    </div>
+
+                    <!-- Monthly Data Breakdown Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                    <th class="py-2 px-3">Month</th>
+                                    <th class="py-2 px-3 text-right">Owner Revenue</th>
+                                    <th class="py-2 px-3 text-right">Operating Costs</th>
+                                    <th class="py-2 px-3 text-right">Operating Profit</th>
+                                    <th class="py-2 px-3 text-right">Final Owner Earnings</th>
+                                    <th class="py-2 px-3 text-center">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-xs">
+                                ${monthlyData.map(m => `
+                                    <tr class="hover:bg-slate-50/80 transition-colors ${m.isCurrentMonth ? 'bg-amber-50/30' : ''}">
+                                        <td class="py-2.5 px-3 font-bold text-slate-800">
+                                            ${m.label}
+                                            ${m.isPartial ? '<span class="ml-1.5 px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[9px] font-black rounded uppercase">Partial</span>' : ''}
+                                        </td>
+                                        <td class="py-2.5 px-3 text-right font-medium text-emerald-700">${money(m.ownerRevenue)}</td>
+                                        <td class="py-2.5 px-3 text-right font-medium text-rose-600">${money(m.operatingCosts)}</td>
+                                        <td class="py-2.5 px-3 text-right font-black ${m.operatingProfit >= 0 ? 'text-slate-900' : 'text-rose-600'}">${money(m.operatingProfit)}</td>
+                                        <td class="py-2.5 px-3 text-right font-medium text-slate-600">${money(m.finalOwnerEarnings)}</td>
+                                        <td class="py-2.5 px-3 text-center">
+                                            <span class="px-2 py-0.5 text-[9px] font-black rounded uppercase tracking-wider ${m.operatingProfit >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">
+                                                ${m.operatingProfit >= 0 ? 'SURPLUS' : 'DEFICIT'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <!-- Lower Informational Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     ${this.renderMetricCard("Active Recovery Target", DataService.cabagnanResult?.allocationsDetail?.find(a=>a.status === "ACTIVE")?.name || "None active", "warning", "First available unfinished item", false)}
@@ -118,6 +192,204 @@ export const DashboardRenderer = {
                 </div>
             </div>
         `;
+    },
+
+    renderMonthlyComparisonStrip(latestMonth, prevMonth) {
+        if (!latestMonth) return '';
+
+        const calcChange = (curr, prev, isCost = false) => {
+            const currentVal = curr || 0;
+            const prevVal = (prev !== undefined && prev !== null) ? prev : 0;
+
+            if (prevVal === 0) {
+                if (currentVal === 0) {
+                    return { text: "— 0.0%", arrow: "—", colorClass: "text-slate-500" };
+                }
+                const colorClass = isCost ? "text-rose-600" : "text-emerald-600";
+                return { text: "NEW", arrow: "▲", colorClass: colorClass };
+            }
+
+            const diff = currentVal - prevVal;
+            const pctVal = (diff / Math.abs(prevVal)) * 100;
+
+            if (Math.abs(pctVal) < 0.05) {
+                return { text: "— 0.0%", arrow: "—", colorClass: "text-slate-500" };
+            }
+
+            const formatted = Math.abs(pctVal).toFixed(1) + "%";
+            if (pctVal > 0) {
+                const colorClass = isCost ? "text-rose-600" : "text-emerald-600";
+                return { text: `▲ ${formatted}`, arrow: "▲", colorClass: colorClass };
+            } else {
+                const colorClass = isCost ? "text-emerald-600" : "text-rose-600";
+                return { text: `▼ ${formatted}`, arrow: "▼", colorClass: colorClass };
+            }
+        };
+
+        const revChange = calcChange(latestMonth.ownerRevenue, prevMonth ? prevMonth.ownerRevenue : 0, false);
+        const costChange = calcChange(latestMonth.operatingCosts, prevMonth ? prevMonth.operatingCosts : 0, true);
+        const profitChange = calcChange(latestMonth.operatingProfit, prevMonth ? prevMonth.operatingProfit : 0, false);
+
+        const compareContextText = prevMonth ? `${latestMonth.label} vs ${prevMonth.label}` : `${latestMonth.label} (Initial)`;
+
+        return `
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                    <div>
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">OWNER REVENUE</div>
+                        <div class="text-lg font-black text-slate-900 mt-0.5">${money(latestMonth.ownerRevenue)}</div>
+                        <div class="text-[10px] text-slate-400 font-medium">${compareContextText}${latestMonth.isPartial ? ' • Partial' : ''}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm font-black ${revChange.colorClass}">${revChange.text}</div>
+                        <div class="text-[9px] text-slate-400 font-bold uppercase">vs Prev Month</div>
+                    </div>
+                </div>
+
+                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                    <div>
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">OPERATING COSTS</div>
+                        <div class="text-lg font-black text-slate-900 mt-0.5">${money(latestMonth.operatingCosts)}</div>
+                        <div class="text-[10px] text-slate-400 font-medium">${compareContextText}${latestMonth.isPartial ? ' • Partial' : ''}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm font-black ${costChange.colorClass}">${costChange.text}</div>
+                        <div class="text-[9px] text-slate-400 font-bold uppercase">vs Prev Month</div>
+                    </div>
+                </div>
+
+                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                    <div>
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">OPERATING PROFIT</div>
+                        <div class="text-lg font-black ${latestMonth.operatingProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'} mt-0.5">${money(latestMonth.operatingProfit)}</div>
+                        <div class="text-[10px] text-slate-400 font-medium">${compareContextText}${latestMonth.isPartial ? ' • Partial' : ''}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm font-black ${profitChange.colorClass}">${profitChange.text}</div>
+                        <div class="text-[9px] text-slate-400 font-bold uppercase">vs Prev Month</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    initMonthlyChart(monthlyData) {
+        const canvas = document.getElementById('monthlyPerformanceChart');
+        if (!canvas) return;
+
+        if (window.monthlyChartInstance) {
+            try {
+                window.monthlyChartInstance.destroy();
+            } catch (e) {
+                console.warn('Error destroying chart instance:', e);
+            }
+            window.monthlyChartInstance = null;
+        }
+
+        if (typeof Chart === 'undefined') {
+            setTimeout(() => {
+                if (typeof Chart !== 'undefined') {
+                    this.initMonthlyChart(monthlyData);
+                }
+            }, 250);
+            return;
+        }
+
+        const ctx = canvas.getContext('2d');
+        const labels = monthlyData.map(d => d.label);
+        const ownerRevenueData = monthlyData.map(d => d.ownerRevenue);
+        const operatingCostData = monthlyData.map(d => d.operatingCosts);
+        const operatingProfitData = monthlyData.map(d => d.operatingProfit);
+
+        window.monthlyChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Owner Revenue',
+                        data: ownerRevenueData,
+                        backgroundColor: 'rgba(16, 185, 129, 0.85)',
+                        borderColor: '#10b981',
+                        borderWidth: 1,
+                        borderRadius: 6,
+                        order: 2
+                    },
+                    {
+                        label: 'Operating Costs',
+                        data: operatingCostData,
+                        backgroundColor: 'rgba(244, 63, 94, 0.85)',
+                        borderColor: '#f43f5e',
+                        borderWidth: 1,
+                        borderRadius: 6,
+                        order: 3
+                    },
+                    {
+                        label: 'Operating Profit',
+                        type: 'line',
+                        data: operatingProfitData,
+                        borderColor: '#0f172a',
+                        backgroundColor: '#0f172a',
+                        borderWidth: 3,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        tension: 0.15,
+                        order: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            font: { weight: 'bold', size: 11 }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        titleFont: { weight: 'bold', size: 12 },
+                        bodyFont: { size: 11 },
+                        padding: 10,
+                        cornerRadius: 12,
+                        callbacks: {
+                            title: (items) => {
+                                if (!items || !items.length) return '';
+                                const idx = items[0].dataIndex;
+                                const item = monthlyData[idx];
+                                return `${item.fullLabel}${item.isPartial ? ' (CURRENT MONTH - PARTIAL)' : ''}`;
+                            },
+                            label: (context) => {
+                                const val = context.parsed.y;
+                                const formatted = "₱" + Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                return ` ${context.dataset.label}: ${formatted}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { weight: 'bold', size: 10 }, color: '#64748b' }
+                    },
+                    y: {
+                        grid: { color: 'rgba(226, 232, 240, 0.6)' },
+                        ticks: {
+                            font: { size: 10 },
+                            color: '#64748b',
+                            callback: (val) => "₱" + Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 })
+                        }
+                    }
+                }
+            }
+        });
     },
 
     renderMetricCard(title, value, type, subtitle = null, isPeriodFlow = true) {

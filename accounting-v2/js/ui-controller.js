@@ -145,7 +145,9 @@ export const UIController = {
     },
 
     attachViewListeners() {
-        if (this.activeTab === 'transaction-entry') {
+        if (this.activeTab === 'overview') {
+            this.setupOverviewListeners();
+        } else if (this.activeTab === 'transaction-entry') {
             this.setupTransactionEntryListeners();
         } else if (this.activeTab === 'settings') {
             this.setupSettingsListeners();
@@ -156,6 +158,29 @@ export const UIController = {
         } else if (this.activeTab === 'transaction-log') {
             this.setupTransactionLogListeners();
         }
+    },
+
+    setupOverviewListeners() {
+        const rangeButtons = document.querySelectorAll('#monthlyRangeControls button');
+        rangeButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const range = e.currentTarget.getAttribute('data-range');
+                DashboardRenderer.monthlyChartRange = range;
+
+                const workspace = document.getElementById('workspaceContent');
+                if (workspace) {
+                    workspace.innerHTML = DashboardRenderer.renderOverview();
+                    this.attachViewListeners();
+                }
+            });
+        });
+
+        const monthlyData = AccountingService.calculateMonthlyBusinessPerformance(
+            DataService.normalizedLogs || [],
+            DataService.settings || {},
+            DashboardRenderer.monthlyChartRange
+        );
+        DashboardRenderer.initMonthlyChart(monthlyData);
     },
 
     // --- TRANSACTION LOG V2 QUERY PIPELINE ---

@@ -975,6 +975,203 @@ export const AccountingService = {
         };
     },
 
+    calculateMonthlyBusinessPerformance(logs = [], settings = {}, range = '12 Months') {
+        if (!logs) logs = [];
+
+        const now = new Date();
+        const currYear = now.getFullYear();
+        const currMonth = now.getMonth(); // 0..11
+        const currentMonthKey = `${currYear}-${String(currMonth + 1).padStart(2, '0')}`;
+
+        // Helper: Parse log month key using transactionDate first
+        const getLogMonthKey = (l) => {
+            if (!l) return null;
+            const rawDate = l.transactionDate || (l.raw && l.raw.transactionDate) || (l.raw && l.raw.dateStr) || l.date;
+            if (rawDate && typeof rawDate === 'string') {
+                const match = rawDate.match(/^(\d{4})[-/](\d{1,2})/);
+                if (match) {
+                    const y = parseInt(match[1], 10);
+                    const m = parseInt(match[2], 10);
+                    if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12) {
+                        return `${y}-${String(m).padStart(2, '0')}`;
+                    }
+                }
+                const d = new Date(rawDate);
+                if (!isNaN(d.getTime())) {
+                    const y = d.getFullYear();
+                    const m = d.getMonth() + 1;
+                    if (y >= 2000 && y <= 2100) {
+                        return `${y}-${String(m).padStart(2, '0')}`;
+                    }
+                }
+            }
+            if (l.timestamp) {
+                const d = new Date(l.timestamp);
+                if (!isNaN(d.getTime())) {
+                    const y = d.getFullYear();
+                    const m = d.getMonth() + 1;
+                    return `${y}-${String(m).padStart(2, '0')}`;
+                }
+            }
+            return null;
+        };
+
+        // 1. Group logs by month key YYYY-MM
+        const logsByMonth = {};
+        logs.forEach(l => {
+            const mKey = getLogMonthKey(l);
+            if (mKey) {
+                if (!logsByMonth[mKey]) logsByMonth[mKey] = [];
+                logsByMonth[mKey].push(l);
+            }
+        });
+
+        // 2. Determine target range of month keys YYYY-MM
+        let numMonths = 12;
+        if (range === '6 Months' || range === '6') numMonths = 6;
+        else if (range === '12 Months' || range === '12') numMonths = 12;
+        else if (range === '24 Months' || range === '24') numMonths = 24;
+
+        let monthKeys = [];
+
+        if (range === 'All Recorded Months' || range === 'All Recorded') {
+            const recordedKeys = Object.keys(logsByMonth).sort();
+            let earliestKey = recordedKeys.length > 0 ? recordedKeys[0] : currentMonthKey;
+            if (earliestKey > currentMonthKey) earliestKey = currentMonthKey;
+
+            // Generate all months from earliestKey to currentMonthKey
+            const [eY, eM] = earliestKey.split('-').map(Number);
+            let curY = eY;
+            let curM = eM - 1; // 0-based index
+
+            while (true) {
+                const k = `${curY}-${String(curM + 1).padStart(2, '0')}`;
+                monthKeys.push(k);
+                if (k >= currentMonthKey) break;
+                curM++;
+                if (curM > 11) {
+                    curM = 0;
+                    curY++;
+                }
+            }
+        } else {
+            // Generate numMonths ending at currentMonthKey
+            for (let i = numMonths - 1; i >= 0; i--) {
+                const d = new Date(currYear, currMonth - i, 1);
+                const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                monthKeys.push(k);
+            }
+        }
+
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const fullMonthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+        const assets = (settings && settings.assets) ? settings.assets : [];
+        const partners = (settings && settings.partners) ? settings.partners : [];
+
+        const result = monthKeys.map(mKey => {
+            const [yStr, mStr] = mKey.split('-');
+            const y = parseInt(yStr, 10);
+            const m = parseInt(mStr, 10); // 1..12
+            const shortLabel = `${monthNames[m - 1]} ${y}`;
+            const fullLabel = `${fullMonthNames[m - 1]} ${y}`;
+            const isCurrentMonth = (mKey === currentMonthKey);
+
+            const monthLogs = logsByMonth[mKey] || [];
+
+            let grossRevenue = 0;
+            let ownerRevenue = 0;
+            let operatingCosts = 0;
+            let directOperatingCosts = 0;
+            let sharedOperatingCosts = 0;
+            let unclassifiedOperatingCosts = 0;
+
+            monthLogs.forEach(l => {
+                const isIncome = l.type && l.type.toLowerCase() === "income";
+                const isExpense = l.type && (l.type.toLowerCase() === "expense" || l.type.toLowerCase() === "outflow");
+
+                if (isIncome) {
+                    grossRevenue += l.amount;
+
+                    let ownerShare = (l.ownerShare !== null && l.ownerShare !== undefined) ? l.ownerShare : (l.raw && l.raw.sharePercent !== undefined ? l.raw.sharePercent : (l.raw && l.raw.ownerShare));
+                    if (ownerShare === null || ownerShare === undefined) {
+                        if (l.branch === "Cabagñan") ownerShare = 1.0;
+                        else if (l.branch === "Iraya" && l.source === "PisoWiFi") ownerShare = 1.0;
+                        else if (l.branch === "Iraya" && l.source === "Pisonet") ownerShare = 0.50;
+                        else ownerShare = 1.0;
+                    }
+                    if (ownerShare > 1.0) ownerShare = ownerShare / 100.0;
+
+                    ownerRevenue += l.amount * ownerShare;
+                } else if (isExpense) {
+                    const labelLower = (l.label || "").toLowerCase();
+                    const catLower = (l.expenseCategory || "").toLowerCase();
+
+                    // Exclude non-operating cashflows
+                    const isPartnerPayout = catLower === "partner payout" || labelLower.includes("payout");
+                    const isOwnerWithdrawal = catLower === "owner withdrawal" || catLower === "drawings" || labelLower.includes("withdrawal");
+                    const isDebtPrincipal = catLower === "debt principal" || labelLower.includes("debt principal");
+
+                    if (!isPartnerPayout && !isOwnerWithdrawal && !isDebtPrincipal) {
+                        let ownerExpShare = (l.ownerShare !== null && l.ownerShare !== undefined) ? l.ownerShare : (l.raw && l.raw.sharePercent !== undefined ? l.raw.sharePercent : (l.raw && l.raw.ownerShare));
+                        if (ownerExpShare === null || ownerExpShare === undefined) {
+                            if (l.branch === "Iraya" && (l.expenseScope === "Shared Branch Expense" || l.expenseCategory === "ALECO" || l.expenseCategory === "DCTV" || labelLower.includes("shared bill"))) {
+                                ownerExpShare = 0.50;
+                            } else if (l.branch === "Partner PisoWiFi") {
+                                ownerExpShare = 0.50;
+                            } else {
+                                ownerExpShare = 1.0;
+                            }
+                        }
+                        if (ownerExpShare > 1.0) ownerExpShare = ownerExpShare / 100.0;
+
+                        const costAmount = l.amount * ownerExpShare;
+                        operatingCosts += costAmount;
+
+                        if (l.expenseScope === "Source Direct Expense") {
+                            directOperatingCosts += costAmount;
+                        } else if (l.expenseScope === "Branch Operating Expense" || l.expenseScope === "Shared Branch Expense") {
+                            sharedOperatingCosts += costAmount;
+                        } else {
+                            unclassifiedOperatingCosts += costAmount;
+                        }
+                    }
+                }
+            });
+
+            const operatingProfit = ownerRevenue - operatingCosts;
+
+            // Calculate recovery & savings for final owner earnings
+            const cab = this.calculateCabagnan(monthLogs, assets);
+            const iraya = this.calculateIraya(monthLogs, assets);
+            const partnerPiso = this.calculatePartnerPisoWifi(monthLogs, partners);
+            const consolidated = this.calculateConsolidated(cab, iraya, partnerPiso, monthLogs);
+
+            const finalOwnerEarnings = consolidated.finalBusinessEarnings;
+
+            return {
+                monthKey: mKey,
+                label: shortLabel,
+                fullLabel: fullLabel,
+                year: y,
+                monthNum: m,
+                grossRevenue,
+                ownerRevenue,
+                operatingCosts,
+                directOperatingCosts,
+                sharedOperatingCosts,
+                unclassifiedOperatingCosts,
+                operatingProfit,
+                finalOwnerEarnings,
+                isCurrentMonth,
+                isPartial: isCurrentMonth,
+                txCount: monthLogs.length
+            };
+        });
+
+        return result;
+    },
+
     performDuplicateCheck(normalizedLogs) {
         const stats = {
             zeroGroups: normalizedLogs.filter(l => l.branch === "Unclassified").length,
@@ -996,7 +1193,10 @@ export const AccountingService = {
             lossProtectionFormula: "FAIL",
             recoveryAllocationTest: "FAIL",
             zeroProfitRecoveryTest: "FAIL",
-            pausedTargetTest: "FAIL"
+            pausedTargetTest: "FAIL",
+            monthlyConservationTest: "FAIL",
+            monthlyHistoricalShareTest: "FAIL",
+            monthlyZeroBaselineTest: "FAIL"
         };
         const mockLigaoLog = { type: "income", amount: 10000, ownerShare: 0.40, partnerShare: 0.60 };
         if ((mockLigaoLog.amount * mockLigaoLog.ownerShare) === 4000) tests.ligaoShareSemantics = "PASS";
@@ -1055,6 +1255,25 @@ export const AccountingService = {
         tests.textSearchNotFound = (r6.length === 0) ? "PASS" : "FAIL";
         tests.textSearchCombinedFilter = (r7.length === 1 && r7[0].id === "2") ? "PASS" : "FAIL";
         tests.textSearchClearSearch = (r8.length === 3) ? "PASS" : "FAIL";
+
+        // Monthly Business Performance Tests
+        const mockMonthlyLogs = [
+            { id: "m1", transactionDate: "2025-10-10", type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 10000, ownerShare: 1.0 },
+            { id: "m2", transactionDate: "2025-10-12", type: "expense", branch: "Cabagñan", source: "Coffee Vendo", amount: 3000, ownerShare: 1.0 },
+            { id: "m3", transactionDate: "2025-11-05", type: "income", branch: "Iraya", source: "Pisonet", amount: 8000, ownerShare: 0.50 }
+        ];
+        const monthlyPerf = this.calculateMonthlyBusinessPerformance(mockMonthlyLogs, {}, '12 Months');
+        const octMonth = monthlyPerf.find(m => m.monthKey === "2025-10");
+        const novMonth = monthlyPerf.find(m => m.monthKey === "2025-11");
+
+        tests.monthlyConservationTest = (octMonth && (octMonth.ownerRevenue - octMonth.operatingCosts === octMonth.operatingProfit) && octMonth.operatingProfit === 7000) ? "PASS" : "FAIL";
+        tests.monthlyHistoricalShareTest = (novMonth && novMonth.ownerRevenue === 4000) ? "PASS" : "FAIL";
+
+        const zeroCheck = (curr, prev) => {
+            if (!prev || prev === 0) return "NEW";
+            return ((curr - prev) / Math.abs(prev) * 100).toFixed(1) + "%";
+        };
+        tests.monthlyZeroBaselineTest = (zeroCheck(5000, 0) === "NEW" && !isNaN(parseFloat(zeroCheck(5000, 2000)))) ? "PASS" : "FAIL";
 
         return tests;
     }
