@@ -161,6 +161,7 @@ export const UIController = {
     },
 
     setupOverviewListeners() {
+        // 1. Overall Monthly Range Controls
         const rangeButtons = document.querySelectorAll('#monthlyRangeControls button');
         rangeButtons.forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -175,12 +176,83 @@ export const UIController = {
             });
         });
 
+        // 2. Monthly Source Range Controls
+        const sourceRangeButtons = document.querySelectorAll('#sourceRangeControls button');
+        sourceRangeButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const range = e.currentTarget.getAttribute('data-source-range');
+                DashboardRenderer.monthlySourceRange = range;
+
+                const workspace = document.getElementById('workspaceContent');
+                if (workspace) {
+                    workspace.innerHTML = DashboardRenderer.renderOverview();
+                    this.attachViewListeners();
+                }
+            });
+        });
+
+        // 3. Source Type Selection Tabs
+        const sourceTypeTabs = document.querySelectorAll('#sourceTypeTabs button');
+        sourceTypeTabs.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const sType = e.currentTarget.getAttribute('data-source-type');
+                DashboardRenderer.selectedSourceType = sType;
+                DashboardRenderer.selectedSourceInstance = 'ALL';
+
+                const workspace = document.getElementById('workspaceContent');
+                if (workspace) {
+                    workspace.innerHTML = DashboardRenderer.renderOverview();
+                    this.attachViewListeners();
+                }
+            });
+        });
+
+        // 4. Source Card Triggers (Clicking cards in ALL SOURCES view)
+        const sourceCardTriggers = document.querySelectorAll('.source-card-trigger');
+        sourceCardTriggers.forEach(card => {
+            card.addEventListener('click', (e) => {
+                const sType = e.currentTarget.getAttribute('data-source-type');
+                if (sType) {
+                    DashboardRenderer.selectedSourceType = sType;
+                    DashboardRenderer.selectedSourceInstance = 'ALL';
+
+                    const workspace = document.getElementById('workspaceContent');
+                    if (workspace) {
+                        workspace.innerHTML = DashboardRenderer.renderOverview();
+                        this.attachViewListeners();
+                    }
+                }
+            });
+        });
+
+        // 5. Source Instance Selector Dropdown
+        const sourceInstanceSelect = document.getElementById('sourceInstanceSelect');
+        if (sourceInstanceSelect) {
+            sourceInstanceSelect.addEventListener('change', (e) => {
+                DashboardRenderer.selectedSourceInstance = e.target.value;
+
+                const workspace = document.getElementById('workspaceContent');
+                if (workspace) {
+                    workspace.innerHTML = DashboardRenderer.renderOverview();
+                    this.attachViewListeners();
+                }
+            });
+        }
+
+        // 6. Draw Charts
         const monthlyData = AccountingService.calculateMonthlyBusinessPerformance(
             DataService.normalizedLogs || [],
             DataService.settings || {},
             DashboardRenderer.monthlyChartRange
         );
         DashboardRenderer.initMonthlyChart(monthlyData);
+
+        const sourceData = AccountingService.calculateMonthlySourcePerformance(
+            DataService.normalizedLogs || [],
+            DataService.settings || {},
+            DashboardRenderer.monthlySourceRange
+        );
+        DashboardRenderer.initMonthlySourceChart(sourceData);
     },
 
     // --- TRANSACTION LOG V2 QUERY PIPELINE ---

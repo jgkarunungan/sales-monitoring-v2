@@ -1172,6 +1172,401 @@ export const AccountingService = {
         return result;
     },
 
+    calculateMonthlySourcePerformance(logs = [], settings = {}, range = '12 Months') {
+        if (!logs) logs = [];
+
+        const now = new Date();
+        const currYear = now.getFullYear();
+        const currMonth = now.getMonth(); // 0..11
+        const currentMonthKey = `${currYear}-${String(currMonth + 1).padStart(2, '0')}`;
+
+        // Helper: Parse log month key using transactionDate first
+        const getLogMonthKey = (l) => {
+            if (!l) return null;
+            const rawDate = l.transactionDate || (l.raw && l.raw.transactionDate) || (l.raw && l.raw.dateStr) || l.date;
+            if (rawDate && typeof rawDate === 'string') {
+                const match = rawDate.match(/^(\d{4})[-/](\d{1,2})/);
+                if (match) {
+                    const y = parseInt(match[1], 10);
+                    const m = parseInt(match[2], 10);
+                    if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12) {
+                        return `${y}-${String(m).padStart(2, '0')}`;
+                    }
+                }
+                const d = new Date(rawDate);
+                if (!isNaN(d.getTime())) {
+                    const y = d.getFullYear();
+                    const m = d.getMonth() + 1;
+                    if (y >= 2000 && y <= 2100) {
+                        return `${y}-${String(m).padStart(2, '0')}`;
+                    }
+                }
+            }
+            if (l.timestamp) {
+                const d = new Date(l.timestamp);
+                if (!isNaN(d.getTime())) {
+                    const y = d.getFullYear();
+                    const m = d.getMonth() + 1;
+                    return `${y}-${String(m).padStart(2, '0')}`;
+                }
+            }
+            return null;
+        };
+
+        // Group logs by month key
+        const logsByMonth = {};
+        logs.forEach(l => {
+            const mKey = getLogMonthKey(l);
+            if (mKey) {
+                if (!logsByMonth[mKey]) logsByMonth[mKey] = [];
+                logsByMonth[mKey].push(l);
+            }
+        });
+
+        // Determine range of month keys YYYY-MM
+        let numMonths = 12;
+        if (range === '6 Months' || range === '6') numMonths = 6;
+        else if (range === '12 Months' || range === '12') numMonths = 12;
+        else if (range === '24 Months' || range === '24') numMonths = 24;
+
+        let monthKeys = [];
+        if (range === 'All Recorded Months' || range === 'All Recorded') {
+            const recordedKeys = Object.keys(logsByMonth).sort();
+            let earliestKey = recordedKeys.length > 0 ? recordedKeys[0] : currentMonthKey;
+            if (earliestKey > currentMonthKey) earliestKey = currentMonthKey;
+
+            const [eY, eM] = earliestKey.split('-').map(Number);
+            let curY = eY;
+            let curM = eM - 1;
+
+            while (true) {
+                const k = `${curY}-${String(curM + 1).padStart(2, '0')}`;
+                monthKeys.push(k);
+                if (k >= currentMonthKey) break;
+                curM++;
+                if (curM > 11) {
+                    curM = 0;
+                    curY++;
+                }
+            }
+        } else {
+            for (let i = numMonths - 1; i >= 0; i--) {
+                const d = new Date(currYear, currMonth - i, 1);
+                const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                monthKeys.push(k);
+            }
+        }
+
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const fullMonthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+        // Helper: Classify Log into Source Type & Instance
+        const classifyLog = (l) => {
+            const rawSource = (l.source || l.sourceType || "Unclassified").trim();
+            const rawBranch = (l.branch || "Unclassified").trim();
+            const rawPartner = (l.partnerName || l.partner || l.location || rawBranch).trim();
+
+            const sourceLower = rawSource.toLowerCase();
+            const labelLower = (l.label || "").toLowerCase();
+
+            let sourceType = "Unclassified";
+            if (sourceLower.includes("pisonet") || labelLower.includes("pisonet")) {
+                sourceType = "Pisonet";
+            } else if (sourceLower.includes("pisowifi") || sourceLower.includes("wifi") || labelLower.includes("pisowifi") || labelLower.includes("piso wifi")) {
+                sourceType = "PisoWiFi";
+            } else if (sourceLower.includes("coffee") || sourceLower.includes("vendo") || labelLower.includes("coffee") || labelLower.includes("vendo")) {
+                sourceType = "Coffee Vendo";
+            } else if (sourceLower.includes("printing") || sourceLower.includes("photocopy") || labelLower.includes("printing") || labelLower.includes("photocopy")) {
+                sourceType = "Printing / Photocopy";
+            } else if (rawSource !== "Unclassified") {
+                sourceType = rawSource;
+            }
+
+            if (sourceType === "Unclassified") {
+                return null; // Do NOT guess a source for unclassified expenses/income
+            }
+
+            let instanceKey = rawBranch;
+            let instanceLocation = rawPartner;
+
+            if (sourceType === "Pisonet") {
+                if (rawBranch.toLowerCase().includes("iraya") || rawPartner.toLowerCase().includes("iraya") || labelLower.includes("iraya")) {
+                    instanceKey = "Iraya";
+                    instanceLocation = "Iraya";
+                } else {
+                    instanceKey = "Cabagñan";
+                    instanceLocation = "Cabagñan";
+                }
+            } else if (sourceType === "PisoWiFi") {
+                if (rawBranch.toLowerCase().includes("cabagnan") || rawBranch.toLowerCase().includes("cabagñan") || rawPartner.toLowerCase().includes("cabagnan") || rawPartner.toLowerCase().includes("cabagñan")) {
+                    instanceKey = "Cabagñan";
+                    instanceLocation = "Cabagñan";
+                } else if (rawBranch.toLowerCase().includes("iraya") || rawPartner.toLowerCase().includes("iraya")) {
+                    instanceKey = "Iraya";
+                    instanceLocation = "Iraya";
+                } else {
+                    instanceKey = rawPartner || rawBranch;
+                    instanceLocation = rawPartner || rawBranch;
+                }
+            } else {
+                instanceKey = rawBranch !== "Unclassified" ? rawBranch : (rawPartner !== "Unclassified" ? rawPartner : "Default");
+                instanceLocation = rawPartner !== "Unclassified" ? rawPartner : instanceKey;
+            }
+
+            return {
+                sourceType,
+                instanceKey,
+                instanceLocation,
+                branch: rawBranch
+            };
+        };
+
+        // Initialize Data Map per Month
+        const monthlyDataMap = {};
+        monthKeys.forEach(mKey => {
+            monthlyDataMap[mKey] = {
+                types: {}
+            };
+        });
+
+        // Track all discovered source types and instances across all logs
+        const discoveredTypes = new Set(["Pisonet", "PisoWiFi", "Coffee Vendo", "Printing / Photocopy"]);
+        const discoveredInstancesMap = {}; // sourceType -> Set of instance keys
+
+        // Add configured partners/sources to discovered instances so they appear even in 0 months
+        if (settings && settings.partners) {
+            settings.partners.forEach(p => {
+                if (p && p.name) {
+                    if (!discoveredInstancesMap["PisoWiFi"]) discoveredInstancesMap["PisoWiFi"] = new Set(["Cabagñan", "Iraya"]);
+                    discoveredInstancesMap["PisoWiFi"].add(p.name);
+                }
+            });
+        }
+
+        // Process all logs
+        logs.forEach(l => {
+            const mKey = getLogMonthKey(l);
+            if (!mKey || !monthlyDataMap[mKey]) return; // Out of range or invalid date
+
+            const info = classifyLog(l);
+            if (!info) return; // Unclassified or non-source log
+
+            const { sourceType, instanceKey, instanceLocation, branch } = info;
+            discoveredTypes.add(sourceType);
+
+            if (!discoveredInstancesMap[sourceType]) {
+                discoveredInstancesMap[sourceType] = new Set();
+            }
+            discoveredInstancesMap[sourceType].add(instanceKey);
+
+            const isIncome = l.type && l.type.toLowerCase() === "income";
+            const isExpense = l.type && (l.type.toLowerCase() === "expense" || l.type.toLowerCase() === "outflow");
+
+            let ownerRev = 0;
+            let directCost = 0;
+
+            if (isIncome) {
+                let ownerShare = (l.ownerShare !== null && l.ownerShare !== undefined) ? l.ownerShare : (l.raw && l.raw.sharePercent !== undefined ? l.raw.sharePercent : (l.raw && l.raw.ownerShare));
+                if (ownerShare === null || ownerShare === undefined) {
+                    if (branch === "Cabagñan") ownerShare = 1.0;
+                    else if (branch === "Iraya" && sourceType === "PisoWiFi") ownerShare = 1.0;
+                    else if (branch === "Iraya" && sourceType === "Pisonet") ownerShare = 0.50;
+                    else ownerShare = 1.0;
+                }
+                if (ownerShare > 1.0) ownerShare /= 100.0;
+                ownerRev = l.amount * ownerShare;
+            } else if (isExpense) {
+                const labelLower = (l.label || "").toLowerCase();
+                const catLower = (l.expenseCategory || "").toLowerCase();
+
+                // Skip non-operating cashflows
+                const isPartnerPayout = catLower === "partner payout" || labelLower.includes("payout");
+                const isOwnerWithdrawal = catLower === "owner withdrawal" || catLower === "drawings" || labelLower.includes("withdrawal");
+                const isDebtPrincipal = catLower === "debt principal" || labelLower.includes("debt principal");
+
+                if (isPartnerPayout || isOwnerWithdrawal || isDebtPrincipal) return;
+
+                // Check if direct source expense
+                const isSharedOverhead = catLower === "aleco" || catLower === "dctv" || labelLower.includes("aleco") || labelLower.includes("dctv") || l.expenseScope === "Branch Operating Expense" || l.expenseScope === "Shared Branch Expense";
+                const isDirectExpense = l.expenseScope === "Source Direct Expense" || (!isSharedOverhead && l.source !== "Unclassified");
+
+                if (isDirectExpense) {
+                    let ownerExpShare = (l.ownerShare !== null && l.ownerShare !== undefined) ? l.ownerShare : (l.raw && l.raw.sharePercent !== undefined ? l.raw.sharePercent : (l.raw && l.raw.ownerShare));
+                    if (ownerExpShare === null || ownerExpShare === undefined) {
+                        if (branch === "Iraya" && sourceType === "Pisonet") ownerExpShare = 0.50;
+                        else if (branch === "Partner PisoWiFi") ownerExpShare = 0.50;
+                        else ownerExpShare = 1.0;
+                    }
+                    if (ownerExpShare > 1.0) ownerExpShare /= 100.0;
+                    directCost = l.amount * ownerExpShare;
+                }
+            }
+
+            if (ownerRev === 0 && directCost === 0) return;
+
+            const mTypes = monthlyDataMap[mKey].types;
+            if (!mTypes[sourceType]) {
+                mTypes[sourceType] = {
+                    ownerRevenue: 0,
+                    directExpenses: 0,
+                    instances: {}
+                };
+            }
+
+            mTypes[sourceType].ownerRevenue += ownerRev;
+            mTypes[sourceType].directExpenses += directCost;
+
+            if (!mTypes[sourceType].instances[instanceKey]) {
+                mTypes[sourceType].instances[instanceKey] = {
+                    key: instanceKey,
+                    location: instanceLocation,
+                    branch,
+                    ownerRevenue: 0,
+                    directExpenses: 0
+                };
+            }
+
+            mTypes[sourceType].instances[instanceKey].ownerRevenue += ownerRev;
+            mTypes[sourceType].instances[instanceKey].directExpenses += directCost;
+        });
+
+        // Ensure standard core instances exist in sets
+        if (!discoveredInstancesMap["Pisonet"]) discoveredInstancesMap["Pisonet"] = new Set();
+        discoveredInstancesMap["Pisonet"].add("Cabagñan");
+        discoveredInstancesMap["Pisonet"].add("Iraya");
+
+        if (!discoveredInstancesMap["PisoWiFi"]) discoveredInstancesMap["PisoWiFi"] = new Set();
+        discoveredInstancesMap["PisoWiFi"].add("Cabagñan");
+        discoveredInstancesMap["PisoWiFi"].add("Iraya");
+
+        // Build Final Structured Result
+        const sourceTypeKeys = Array.from(discoveredTypes);
+
+        // Build Month Records
+        const formattedMonths = monthKeys.map(mKey => {
+            const [yStr, mStr] = mKey.split('-');
+            const y = parseInt(yStr, 10);
+            const m = parseInt(mStr, 10);
+            const shortLabel = `${monthNames[m - 1]} ${y}`;
+            const fullLabel = `${fullMonthNames[m - 1]} ${y}`;
+            const isCurrentMonth = (mKey === currentMonthKey);
+
+            const mData = monthlyDataMap[mKey] || { types: {} };
+
+            const byType = {};
+            let totalOwnerRevenue = 0;
+            let totalDirectExpenses = 0;
+
+            sourceTypeKeys.forEach(sType => {
+                const typeObj = mData.types[sType] || { ownerRevenue: 0, directExpenses: 0, instances: {} };
+                const ownerRevenue = typeObj.ownerRevenue || 0;
+                const directExpenses = typeObj.directExpenses || 0;
+                const operatingProfit = ownerRevenue - directExpenses;
+
+                totalOwnerRevenue += ownerRevenue;
+                totalDirectExpenses += directExpenses;
+
+                // Instances Breakdown
+                const instances = {};
+                const knownInstances = discoveredInstancesMap[sType] ? Array.from(discoveredInstancesMap[sType]) : [];
+                knownInstances.forEach(instKey => {
+                    const instObj = typeObj.instances[instKey] || { ownerRevenue: 0, directExpenses: 0 };
+                    const instRev = instObj.ownerRevenue || 0;
+                    const instExp = instObj.directExpenses || 0;
+                    instances[instKey] = {
+                        key: instKey,
+                        ownerRevenue: instRev,
+                        directExpenses: instExp,
+                        operatingProfit: instRev - instExp
+                    };
+                });
+
+                byType[sType] = {
+                    ownerRevenue,
+                    directExpenses,
+                    operatingProfit,
+                    instances
+                };
+            });
+
+            return {
+                monthKey: mKey,
+                label: shortLabel,
+                fullLabel: fullLabel,
+                year: y,
+                monthNum: m,
+                isCurrentMonth,
+                isPartial: isCurrentMonth,
+                byType,
+                totalOwnerRevenue,
+                totalDirectExpenses,
+                totalOperatingProfit: totalOwnerRevenue - totalDirectExpenses
+            };
+        });
+
+        // Helper: Calculate Percent Change & Trends
+        const calcPercentChange = (curr, prev) => {
+            const currentVal = curr || 0;
+            const prevVal = (prev !== undefined && prev !== null) ? prev : 0;
+
+            if (prevVal === 0) {
+                if (currentVal === 0) {
+                    return { text: "— 0.0%", arrow: "—", status: "neutral", pct: 0 };
+                }
+                const colorClass = currentVal > 0 ? "text-emerald-600" : "text-rose-600";
+                return { text: currentVal > 0 ? "▲ NEW" : "▼ NEW", arrow: currentVal > 0 ? "▲" : "▼", status: currentVal > 0 ? "positive" : "negative", isNew: true };
+            }
+
+            const diff = currentVal - prevVal;
+            const pctVal = (diff / Math.abs(prevVal)) * 100;
+
+            if (Math.abs(pctVal) < 0.05) {
+                return { text: "— 0.0%", arrow: "—", status: "neutral", pct: 0 };
+            }
+
+            const formatted = Math.abs(pctVal).toFixed(1) + "%";
+            if (pctVal > 0) {
+                return { text: `▲ ${formatted}`, arrow: "▲", status: "positive", pct: pctVal };
+            } else {
+                return { text: `▼ ${formatted}`, arrow: "▼", status: "negative", pct: pctVal };
+            }
+        };
+
+        const latestMonth = formattedMonths.length > 0 ? formattedMonths[formattedMonths.length - 1] : null;
+        const prevMonth = formattedMonths.length > 1 ? formattedMonths[formattedMonths.length - 2] : null;
+
+        // Source Type Summaries for Cards
+        const sourceTypeSummaries = {};
+        sourceTypeKeys.forEach(sType => {
+            const curr = latestMonth && latestMonth.byType[sType] ? latestMonth.byType[sType] : { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0 };
+            const prev = prevMonth && prevMonth.byType[sType] ? prevMonth.byType[sType] : { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0 };
+
+            const change = calcPercentChange(curr.operatingProfit, prev.operatingProfit);
+
+            sourceTypeSummaries[sType] = {
+                sourceType: sType,
+                currentOwnerRevenue: curr.ownerRevenue,
+                currentDirectExpenses: curr.directExpenses,
+                currentOperatingProfit: curr.operatingProfit,
+                prevOperatingProfit: prev.operatingProfit,
+                changeText: change.text,
+                changeArrow: change.arrow,
+                changeStatus: change.status,
+                instances: discoveredInstancesMap[sType] ? Array.from(discoveredInstancesMap[sType]) : []
+            };
+        });
+
+        return {
+            monthKeys,
+            months: formattedMonths,
+            latestMonth,
+            prevMonth,
+            sourceTypeKeys,
+            discoveredInstancesMap: Object.fromEntries(Object.entries(discoveredInstancesMap).map(([k, v]) => [k, Array.from(v)])),
+            sourceTypeSummaries
+        };
+    },
+
     performDuplicateCheck(normalizedLogs) {
         const stats = {
             zeroGroups: normalizedLogs.filter(l => l.branch === "Unclassified").length,
@@ -1196,7 +1591,11 @@ export const AccountingService = {
             pausedTargetTest: "FAIL",
             monthlyConservationTest: "FAIL",
             monthlyHistoricalShareTest: "FAIL",
-            monthlyZeroBaselineTest: "FAIL"
+            monthlyZeroBaselineTest: "FAIL",
+            sourcePisonetTest: "FAIL",
+            sourceCoffeeTest: "FAIL",
+            sourcePrintingTest: "FAIL",
+            sourceCrossSourceTest: "FAIL"
         };
         const mockLigaoLog = { type: "income", amount: 10000, ownerShare: 0.40, partnerShare: 0.60 };
         if ((mockLigaoLog.amount * mockLigaoLog.ownerShare) === 4000) tests.ligaoShareSemantics = "PASS";
@@ -1274,6 +1673,36 @@ export const AccountingService = {
             return ((curr - prev) / Math.abs(prev) * 100).toFixed(1) + "%";
         };
         tests.monthlyZeroBaselineTest = (zeroCheck(5000, 0) === "NEW" && !isNaN(parseFloat(zeroCheck(5000, 2000)))) ? "PASS" : "FAIL";
+
+        // Monthly Source Performance Verification Tests
+        const mockSourceLogs = [
+            { id: "s1", transactionDate: "2025-10-10", type: "income", branch: "Cabagñan", source: "Pisonet", amount: 10000, ownerShare: 1.0 },
+            { id: "s2", transactionDate: "2025-10-10", type: "income", branch: "Iraya", source: "Pisonet", amount: 6000, ownerShare: 0.50 }, // 3000 owner share
+            { id: "s3", transactionDate: "2025-10-12", type: "expense", branch: "Cabagñan", source: "Pisonet", expenseScope: "Source Direct Expense", amount: 2000, ownerShare: 1.0 },
+            { id: "s4", transactionDate: "2025-10-15", type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 12000, ownerShare: 1.0 },
+            { id: "s5", transactionDate: "2025-10-16", type: "expense", branch: "Cabagñan", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 4000, ownerShare: 1.0 },
+            { id: "s6", transactionDate: "2025-10-18", type: "income", branch: "Cabagñan", source: "Printing / Photocopy", amount: 5000, ownerShare: 1.0 },
+            { id: "s7", transactionDate: "2025-10-19", type: "expense", branch: "Cabagñan", source: "Printing / Photocopy", expenseScope: "Source Direct Expense", amount: 1000, ownerShare: 1.0 }
+        ];
+
+        const srcPerf = this.calculateMonthlySourcePerformance(mockSourceLogs, {}, '12 Months');
+        const octSrcMonth = srcPerf.months.find(m => m.monthKey === "2025-10");
+
+        if (octSrcMonth) {
+            const pisonetObj = octSrcMonth.byType["Pisonet"];
+            const coffeeObj = octSrcMonth.byType["Coffee Vendo"];
+            const printingObj = octSrcMonth.byType["Printing / Photocopy"];
+
+            tests.sourcePisonetTest = (pisonetObj && pisonetObj.ownerRevenue === 13000 && pisonetObj.directExpenses === 2000 && pisonetObj.operatingProfit === 11000) ? "PASS" : "FAIL";
+            tests.sourceCoffeeTest = (coffeeObj && coffeeObj.ownerRevenue === 12000 && coffeeObj.directExpenses === 4000 && coffeeObj.operatingProfit === 8000) ? "PASS" : "FAIL";
+            tests.sourcePrintingTest = (printingObj && printingObj.ownerRevenue === 5000 && printingObj.directExpenses === 1000 && printingObj.operatingProfit === 4000) ? "PASS" : "FAIL";
+            tests.sourceCrossSourceTest = (octSrcMonth.totalOwnerRevenue === 30000 && octSrcMonth.totalDirectExpenses === 7000 && octSrcMonth.totalOperatingProfit === 23000) ? "PASS" : "FAIL";
+        } else {
+            tests.sourcePisonetTest = "FAIL";
+            tests.sourceCoffeeTest = "FAIL";
+            tests.sourcePrintingTest = "FAIL";
+            tests.sourceCrossSourceTest = "FAIL";
+        }
 
         return tests;
     }

@@ -19,6 +19,9 @@ const pct = (val) => {
 
 export const DashboardRenderer = {
     monthlyChartRange: '12 Months',
+    monthlySourceRange: '12 Months',
+    selectedSourceType: 'ALL SOURCES',
+    selectedSourceInstance: 'ALL',
 
     renderOverview() {
         const c = DataService.consolidatedResult;
@@ -182,6 +185,9 @@ export const DashboardRenderer = {
                         </table>
                     </div>
                 </div>
+
+                <!-- MONTHLY SOURCE PERFORMANCE SECTION -->
+                ${this.renderMonthlySourcePerformanceSection()}
 
                 <!-- Lower Informational Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -390,6 +396,421 @@ export const DashboardRenderer = {
                 }
             }
         });
+    },
+
+    renderMonthlySourcePerformanceSection() {
+        const srcData = AccountingService.calculateMonthlySourcePerformance(
+            DataService.normalizedLogs || [],
+            DataService.settings || {},
+            this.monthlySourceRange
+        );
+
+        const { months, latestMonth, prevMonth, sourceTypeKeys, discoveredInstancesMap, sourceTypeSummaries } = srcData;
+
+        const isAllSources = (this.selectedSourceType === 'ALL SOURCES' || !this.selectedSourceType);
+        const activeType = isAllSources ? null : this.selectedSourceType;
+
+        // Instance List for active selected source type
+        const activeInstances = activeType && discoveredInstancesMap[activeType] ? discoveredInstancesMap[activeType] : [];
+
+        // Build Cards HTML
+        let cardsHtml = '';
+
+        if (isAllSources) {
+            // Render Source Type Cards
+            const primaryTypes = ["Pisonet", "PisoWiFi", "Coffee Vendo", "Printing / Photocopy"];
+            const displayTypes = [...new Set([...primaryTypes, ...sourceTypeKeys])];
+
+            cardsHtml = `
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    ${displayTypes.map(sType => {
+                        const sum = sourceTypeSummaries[sType] || { currentOperatingProfit: 0, changeText: "— 0.0%", changeStatus: "neutral" };
+                        const colorClass = sum.changeStatus === 'positive' ? 'text-emerald-600' : (sum.changeStatus === 'negative' ? 'text-rose-600' : 'text-slate-500');
+                        return `
+                            <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between cursor-pointer hover:border-slate-300 transition-all source-card-trigger" data-source-type="${sType}">
+                                <div>
+                                    <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">${sType}</div>
+                                    <div class="text-lg font-black text-slate-900 mt-0.5">${money(sum.currentOperatingProfit)}</div>
+                                    <div class="text-[10px] text-slate-400 font-medium">Monthly Operating Profit</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm font-black ${colorClass}">${sum.changeText}</div>
+                                    <div class="text-[9px] text-slate-400 font-bold uppercase">vs Prev Month</div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        } else {
+            // Individual Source Metrics (or Instance Metrics)
+            const activeInstKey = this.selectedSourceInstance || 'ALL';
+
+            const latestMonthActiveObj = latestMonth ? (
+                activeInstKey === 'ALL'
+                    ? (latestMonth.byType[activeType] || { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0 })
+                    : (latestMonth.byType[activeType]?.instances[activeInstKey] || { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0 })
+            ) : { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0 };
+
+            const prevMonthActiveObj = prevMonth ? (
+                activeInstKey === 'ALL'
+                    ? (prevMonth.byType[activeType] || { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0 })
+                    : (prevMonth.byType[activeType]?.instances[activeInstKey] || { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0 })
+            ) : { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0 };
+
+            const calcChange = (curr, prev) => {
+                const cVal = curr || 0;
+                const pVal = prev || 0;
+                if (pVal === 0) {
+                    if (cVal === 0) return { text: "— 0.0%", colorClass: "text-slate-500" };
+                    return { text: cVal > 0 ? "▲ NEW" : "▼ NEW", colorClass: cVal > 0 ? "text-emerald-600" : "text-rose-600" };
+                }
+                const pctVal = ((cVal - pVal) / Math.abs(pVal)) * 100;
+                if (Math.abs(pctVal) < 0.05) return { text: "— 0.0%", colorClass: "text-slate-500" };
+                const formatted = Math.abs(pctVal).toFixed(1) + "%";
+                if (pctVal > 0) return { text: `▲ ${formatted}`, colorClass: "text-emerald-600" };
+                return { text: `▼ ${formatted}`, colorClass: "text-rose-600" };
+            };
+
+            const change = calcChange(latestMonthActiveObj.operatingProfit, prevMonthActiveObj.operatingProfit);
+            const contextText = prevMonth ? `${latestMonth.label} vs ${prevMonth.label}` : `${latestMonth ? latestMonth.label : 'Current'}`;
+
+            cardsHtml = `
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">THIS MONTH OWNER REVENUE</div>
+                        <div class="text-lg font-black text-emerald-700 mt-0.5">${money(latestMonthActiveObj.ownerRevenue)}</div>
+                        <div class="text-[10px] text-slate-400 font-medium">${contextText}</div>
+                    </div>
+
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">THIS MONTH DIRECT EXPENSES</div>
+                        <div class="text-lg font-black text-rose-600 mt-0.5">${money(latestMonthActiveObj.directExpenses)}</div>
+                        <div class="text-[10px] text-slate-400 font-medium">Excludes general branch overhead</div>
+                    </div>
+
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">THIS MONTH OPERATING PROFIT</div>
+                        <div class="text-lg font-black ${latestMonthActiveObj.operatingProfit >= 0 ? 'text-slate-900' : 'text-rose-600'} mt-0.5">${money(latestMonthActiveObj.operatingProfit)}</div>
+                        <div class="text-[10px] text-slate-400 font-medium">Owner revenue minus direct expenses</div>
+                    </div>
+
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                        <div>
+                            <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">MONTH-OVER-MONTH TREND</div>
+                            <div class="text-lg font-black ${change.colorClass} mt-0.5">${change.text}</div>
+                            <div class="text-[10px] text-slate-400 font-medium">${contextText}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Build Table Rows for Active Selection
+        const tableRowsHtml = months.map(m => {
+            let rev = 0;
+            let exp = 0;
+            let profit = 0;
+
+            if (isAllSources) {
+                rev = m.totalOwnerRevenue;
+                exp = m.totalDirectExpenses;
+                profit = m.totalOperatingProfit;
+            } else {
+                const instKey = this.selectedSourceInstance || 'ALL';
+                const typeObj = m.byType[activeType] || { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0, instances: {} };
+                if (instKey === 'ALL') {
+                    rev = typeObj.ownerRevenue;
+                    exp = typeObj.directExpenses;
+                    profit = typeObj.operatingProfit;
+                } else {
+                    const instObj = typeObj.instances[instKey] || { ownerRevenue: 0, directExpenses: 0, operatingProfit: 0 };
+                    rev = instObj.ownerRevenue;
+                    exp = instObj.directExpenses;
+                    profit = instObj.operatingProfit;
+                }
+            }
+
+            return `
+                <tr class="hover:bg-slate-50/80 transition-colors ${m.isCurrentMonth ? 'bg-amber-50/30' : ''}">
+                    <td class="py-2.5 px-3 font-bold text-slate-800">
+                        ${m.label}
+                        ${m.isPartial ? '<span class="ml-1.5 px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[9px] font-black rounded uppercase">Partial</span>' : ''}
+                    </td>
+                    <td class="py-2.5 px-3 text-right font-medium text-emerald-700">${money(rev)}</td>
+                    <td class="py-2.5 px-3 text-right font-medium text-rose-600">${money(exp)}</td>
+                    <td class="py-2.5 px-3 text-right font-black ${profit >= 0 ? 'text-slate-900' : 'text-rose-600'}">${money(profit)}</td>
+                    <td class="py-2.5 px-3 text-center">
+                        <span class="px-2 py-0.5 text-[9px] font-black rounded uppercase tracking-wider ${profit >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">
+                            ${profit >= 0 ? 'SURPLUS' : 'DEFICIT'}
+                        </span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        // Standard chips list
+        const primaryChips = ["ALL SOURCES", "PISONET", "PISOWIFI", "COFFEE VENDO", "PRINTING / PHOTOCOPY"];
+        const allChips = [...new Set([...primaryChips, ...sourceTypeKeys.map(k => k.toUpperCase())])];
+
+        return `
+            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6" id="monthlySourcePerformanceSection">
+                <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-4 gap-4">
+                    <div>
+                        <h3 class="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                            <span>🎯</span> MONTHLY SOURCE PERFORMANCE
+                        </h3>
+                        <p class="text-xs text-slate-400 font-medium mt-0.5">Track month-to-month owner revenue, direct expenses & operating profit per income source</p>
+                    </div>
+
+                    <!-- Independent Range Selector -->
+                    <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl" id="sourceRangeControls">
+                        <button data-source-range="6 Months" class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${this.monthlySourceRange === '6 Months' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">6 Months</button>
+                        <button data-source-range="12 Months" class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${this.monthlySourceRange === '12 Months' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">12 Months</button>
+                        <button data-source-range="24 Months" class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${this.monthlySourceRange === '24 Months' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">24 Months</button>
+                        <button data-source-range="All Recorded Months" class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${this.monthlySourceRange === 'All Recorded Months' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">All Recorded</button>
+                    </div>
+                </div>
+
+                <!-- Source Selection Tabs & Instance Drilldown -->
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div class="flex flex-wrap gap-1 bg-slate-100 p-1 rounded-xl" id="sourceTypeTabs">
+                        ${allChips.map(chip => {
+                            const chipKey = chip === "ALL SOURCES" ? "ALL SOURCES" : (sourceTypeKeys.find(k => k.toUpperCase() === chip) || chip);
+                            const isActive = (this.selectedSourceType || "ALL SOURCES").toUpperCase() === chip;
+                            return `
+                                <button data-source-type="${chipKey}" class="px-3 py-1.5 text-xs font-black uppercase rounded-lg transition-all ${isActive ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}">
+                                    ${chip}
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <!-- Level 2 Drilldown Instance Selector -->
+                    ${(!isAllSources && activeInstances.length > 0) ? `
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] font-black text-slate-400 uppercase">Instance / Location:</span>
+                            <select id="sourceInstanceSelect" class="bg-slate-100 border-none text-xs font-bold rounded-xl px-3 py-1.5 focus:ring-2 focus:ring-slate-300 text-slate-700 cursor-pointer">
+                                <option value="ALL" ${this.selectedSourceInstance === 'ALL' ? 'selected' : ''}>ALL ${activeType.toUpperCase()}</option>
+                                ${activeInstances.map(instKey => `
+                                    <option value="${instKey}" ${this.selectedSourceInstance === instKey ? 'selected' : ''}>${instKey}</option>
+                                `).join('')}
+                            </select>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <!-- Source Summary Cards -->
+                ${cardsHtml}
+
+                <!-- Chart Canvas -->
+                <div class="relative w-full h-[320px] bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                    <canvas id="monthlySourcePerformanceChart" class="w-full h-full"></canvas>
+                </div>
+
+                <!-- Monthly Data Table -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                <th class="py-2 px-3">Month</th>
+                                <th class="py-2 px-3 text-right">Owner Revenue</th>
+                                <th class="py-2 px-3 text-right">Direct Expenses</th>
+                                <th class="py-2 px-3 text-right">Operating Profit</th>
+                                <th class="py-2 px-3 text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-xs">
+                            ${tableRowsHtml}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    },
+
+    initMonthlySourceChart(srcData) {
+        const canvas = document.getElementById('monthlySourcePerformanceChart');
+        if (!canvas) return;
+
+        if (window.monthlySourceChartInstance) {
+            try {
+                window.monthlySourceChartInstance.destroy();
+            } catch (e) {
+                console.warn('Error destroying source chart instance:', e);
+            }
+            window.monthlySourceChartInstance = null;
+        }
+
+        if (typeof Chart === 'undefined') {
+            setTimeout(() => {
+                if (typeof Chart !== 'undefined') {
+                    this.initMonthlySourceChart(srcData);
+                }
+            }, 250);
+            return;
+        }
+
+        const ctx = canvas.getContext('2d');
+        const { months, sourceTypeKeys } = srcData;
+        const labels = months.map(d => d.label);
+
+        const isAllSources = (this.selectedSourceType === 'ALL SOURCES' || !this.selectedSourceType);
+
+        if (isAllSources) {
+            // Grouped Bar Chart comparing Operating Profit across Source Types
+            const colorMap = {
+                "Pisonet": { bg: "rgba(99, 102, 241, 0.85)", border: "#6366f1" },       // Indigo
+                "PisoWiFi": { bg: "rgba(16, 185, 129, 0.85)", border: "#10b981" },      // Emerald
+                "Coffee Vendo": { bg: "rgba(245, 158, 11, 0.85)", border: "#f59e0b" },   // Amber
+                "Printing / Photocopy": { bg: "rgba(168, 85, 247, 0.85)", border: "#a855f7" } // Purple
+            };
+
+            const datasets = sourceTypeKeys.map(sType => {
+                const colors = colorMap[sType] || { bg: "rgba(100, 116, 139, 0.85)", border: "#64748b" };
+                const profitData = months.map(m => m.byType[sType] ? m.byType[sType].operatingProfit : 0);
+                return {
+                    label: sType,
+                    data: profitData,
+                    backgroundColor: colors.bg,
+                    borderColor: colors.border,
+                    borderWidth: 1,
+                    borderRadius: 6
+                };
+            });
+
+            window.monthlySourceChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', labels: { usePointStyle: true, font: { weight: 'bold', size: 11 } } },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                            cornerRadius: 12,
+                            padding: 10,
+                            callbacks: {
+                                title: (items) => {
+                                    if (!items || !items.length) return '';
+                                    const item = months[items[0].dataIndex];
+                                    return `${item.fullLabel}${item.isPartial ? ' (CURRENT MONTH - PARTIAL)' : ''}`;
+                                },
+                                label: (context) => {
+                                    const val = context.parsed.y;
+                                    const formatted = "₱" + Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                    return ` ${context.dataset.label} Operating Profit: ${formatted}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { weight: 'bold', size: 10 }, color: '#64748b' } },
+                        y: {
+                            grid: { color: 'rgba(226, 232, 240, 0.6)' },
+                            ticks: { font: { size: 10 }, color: '#64748b', callback: (val) => "₱" + Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 }) }
+                        }
+                    }
+                }
+            });
+        } else {
+            // Combined Bar + Line Chart for Specific Source Type or Instance
+            const activeType = this.selectedSourceType;
+            const instKey = this.selectedSourceInstance || 'ALL';
+
+            const revData = months.map(m => {
+                const typeObj = m.byType[activeType] || { ownerRevenue: 0, directExpenses: 0, instances: {} };
+                if (instKey === 'ALL') return typeObj.ownerRevenue;
+                return typeObj.instances[instKey] ? typeObj.instances[instKey].ownerRevenue : 0;
+            });
+
+            const expData = months.map(m => {
+                const typeObj = m.byType[activeType] || { ownerRevenue: 0, directExpenses: 0, instances: {} };
+                if (instKey === 'ALL') return typeObj.directExpenses;
+                return typeObj.instances[instKey] ? typeObj.instances[instKey].directExpenses : 0;
+            });
+
+            const profitData = months.map(m => {
+                const typeObj = m.byType[activeType] || { ownerRevenue: 0, directExpenses: 0, instances: {} };
+                if (instKey === 'ALL') return typeObj.operatingProfit;
+                return typeObj.instances[instKey] ? typeObj.instances[instKey].operatingProfit : 0;
+            });
+
+            const chartTitleLabel = instKey === 'ALL' ? activeType : `${activeType} (${instKey})`;
+
+            window.monthlySourceChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Owner Revenue',
+                            data: revData,
+                            backgroundColor: 'rgba(16, 185, 129, 0.85)',
+                            borderColor: '#10b981',
+                            borderWidth: 1,
+                            borderRadius: 6,
+                            order: 2
+                        },
+                        {
+                            label: 'Direct Expenses',
+                            data: expData,
+                            backgroundColor: 'rgba(244, 63, 94, 0.85)',
+                            borderColor: '#f43f5e',
+                            borderWidth: 1,
+                            borderRadius: 6,
+                            order: 3
+                        },
+                        {
+                            label: `${chartTitleLabel} Operating Profit`,
+                            type: 'line',
+                            data: profitData,
+                            borderColor: '#0f172a',
+                            backgroundColor: '#0f172a',
+                            borderWidth: 3,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            tension: 0.15,
+                            order: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', labels: { usePointStyle: true, font: { weight: 'bold', size: 11 } } },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                            cornerRadius: 12,
+                            padding: 10,
+                            callbacks: {
+                                title: (items) => {
+                                    if (!items || !items.length) return '';
+                                    const item = months[items[0].dataIndex];
+                                    return `${item.fullLabel}${item.isPartial ? ' (CURRENT MONTH - PARTIAL)' : ''}`;
+                                },
+                                label: (context) => {
+                                    const val = context.parsed.y;
+                                    const formatted = "₱" + Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                    return ` ${context.dataset.label}: ${formatted}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { weight: 'bold', size: 10 }, color: '#64748b' } },
+                        y: {
+                            grid: { color: 'rgba(226, 232, 240, 0.6)' },
+                            ticks: { font: { size: 10 }, color: '#64748b', callback: (val) => "₱" + Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 }) }
+                        }
+                    }
+                }
+            });
+        }
     },
 
     renderMetricCard(title, value, type, subtitle = null, isPeriodFlow = true) {
