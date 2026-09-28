@@ -1530,12 +1530,16 @@ export const DashboardRenderer = {
         const allAssets = DataService.getAssets();
         const archivedAssets = allAssets.filter(a => a && a.archived === true);
 
+        const recalculationRequiredEntry = (DataService.recoveryLedger || []).find(e => e && (e.status === 'RECALCULATION REQUIRED' || e.recalculationRequired === true));
+        const recalculationPeriod = recalculationRequiredEntry ? recalculationRequiredEntry.periodKey : null;
+
         const getStatusBadge = (status) => {
             switch(status) {
                 case 'ACTIVE': return `<span class="px-2 py-1 rounded-full font-black text-[9px] uppercase bg-emerald-100 text-emerald-800">ACTIVE</span>`;
                 case 'WAITING': return `<span class="px-2 py-1 rounded-full font-black text-[9px] uppercase bg-slate-100 text-slate-600">WAITING</span>`;
                 case 'PAUSED': return `<span class="px-2 py-1 rounded-full font-black text-[9px] uppercase bg-red-100 text-red-800">PAUSED</span>`;
                 case 'FULLY RECOVERED': return `<span class="px-2 py-1 rounded-full font-black text-[9px] uppercase bg-blue-100 text-blue-800">FULLY RECOVERED</span>`;
+                case 'RECALCULATION REQUIRED': return `<span class="px-2 py-1 rounded-full font-black text-[9px] uppercase bg-amber-100 text-amber-800">RECALCULATION REQUIRED</span>`;
                 default: return `<span class="px-2 py-1 rounded-full font-black text-[9px] uppercase bg-slate-100 text-slate-600">${safeText(status)}</span>`;
             }
         };
@@ -1562,7 +1566,7 @@ export const DashboardRenderer = {
                 <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div>
                         <h2 class="text-xl font-black text-slate-800 uppercase tracking-tight">Capital Recovery Queue</h2>
-                        <p class="text-xs text-slate-400 font-medium mt-1">Calculated recovery allocation for the current period based on self-recovery and branch profit waterfall.</p>
+                        <p class="text-xs text-slate-400 font-medium mt-1">Calculated recovery allocation based on closed month locks and current month provisional calculations.</p>
                     </div>
                     <div class="flex items-center gap-3">
                         ${isAdmin ? `
@@ -1576,6 +1580,23 @@ export const DashboardRenderer = {
                         <div class="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-black">PERIOD: ${currentPeriod.toUpperCase()}</div>
                     </div>
                 </div>
+
+                ${recalculationPeriod ? `
+                    <div class="bg-amber-50 border border-amber-300 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 shadow-sm">
+                        <div class="flex items-center gap-3">
+                            <span class="text-2xl">⚠️</span>
+                            <div>
+                                <div class="font-black text-xs uppercase tracking-wider">Recalculation Required for Closed Period (${safeText(recalculationPeriod)})</div>
+                                <p class="text-[11px] text-amber-700 font-medium mt-0.5">A backdated transaction was recorded for closed period ${safeText(recalculationPeriod)}. Click recalculate to update and re-lock historical recovery.</p>
+                            </div>
+                        </div>
+                        ${isAdmin ? `
+                            <button id="btnRecalculatePeriod" data-period="${safeText(recalculationPeriod)}" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs uppercase rounded-xl transition-all shrink-0 shadow">
+                                Recalculate & Re-lock ${safeText(recalculationPeriod)}
+                            </button>
+                        ` : ''}
+                    </div>
+                ` : ''}
 
                 <!-- DYNAMIC SOURCE SELF-RECOVERY SECTIONS -->
                 ${selfRecoveryKeys.map(srcKey => {
@@ -1621,7 +1642,7 @@ export const DashboardRenderer = {
                                     <div class="text-sm font-black text-slate-800 mt-0.5">${money(srcRes ? srcRes.recoveryPool : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Period Recovery</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Current Month Provisional</div>
                                     <div class="text-sm font-black text-emerald-600 mt-0.5">${money(srcRes ? srcRes.allocatedTotal : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
@@ -1640,9 +1661,9 @@ export const DashboardRenderer = {
                                     <div class="bg-amber-500 h-full transition-all duration-500" style="width: ${srcRes ? srcRes.progressPercent : 0}%"></div>
                                 </div>
                                 <div class="flex justify-between text-[10px] font-bold text-slate-500 font-mono pt-1">
-                                    <span>Recovered Before Tracking: ${money(srcRes ? srcRes.totalOpeningRecovered : 0)}</span>
-                                    <span>Current Allocation: +${money(srcRes ? srcRes.allocatedTotal : 0)}</span>
-                                    <span class="text-slate-800 font-black">Remaining Opening Cost: ${money(srcRes ? srcRes.totalRemaining : 0)}</span>
+                                    <span>Recovered Through Closed Months: ${money(srcRes ? srcRes.totalConfirmedRecovered : 0)}</span>
+                                    <span>Current Month Provisional: +${money(srcRes ? srcRes.totalCurrentProvisional : 0)}</span>
+                                    <span class="text-slate-800 font-black">Projected Remaining Balance: ${money(srcRes ? srcRes.totalRemaining : 0)}</span>
                                 </div>
                             </div>
 
@@ -1652,11 +1673,12 @@ export const DashboardRenderer = {
                                     <thead>
                                         <tr class="text-[10px] text-slate-400 font-black border-b uppercase bg-white">
                                             <th class="p-3">Priority</th>
-                                            <th class="p-3">Opening Cost Asset</th>
-                                            <th class="p-3">Full Cost</th>
-                                            <th class="p-3">Recovered To Date</th>
-                                            <th class="p-3">Period Allocation</th>
-                                            <th class="p-3">Remaining Capital</th>
+                                            <th class="p-3">Target Asset</th>
+                                            <th class="p-3">Original Cost</th>
+                                            <th class="p-3">Recovered Through Closed Months</th>
+                                            <th class="p-3">Current Month Provisional</th>
+                                            <th class="p-3">Projected Total Recovered</th>
+                                            <th class="p-3">Projected Remaining Balance</th>
                                             <th class="p-3 text-center">Status</th>
                                             ${isAdmin ? `<th class="p-3 text-center">Actions</th>` : ''}
                                         </tr>
@@ -1667,8 +1689,9 @@ export const DashboardRenderer = {
                                                 <td class="p-4 font-mono text-slate-400">#${a.priority || idx+1}</td>
                                                 <td class="p-4 text-slate-800 font-bold">${safeText(a.name)}</td>
                                                 <td class="p-4 font-mono">${money(a.targetAmount)}</td>
-                                                <td class="p-4 font-mono text-slate-500">${money(a.openingRecovered + a.currentPeriodAllocation)}</td>
+                                                <td class="p-4 font-mono text-slate-500">${money(a.confirmedRecovered !== undefined ? a.confirmedRecovered : a.openingRecovered)}</td>
                                                 <td class="p-4 font-mono font-bold text-emerald-600">+ ${money(a.currentPeriodAllocation)}</td>
+                                                <td class="p-4 font-mono font-bold text-slate-800">${money(a.closingRecovered)}</td>
                                                 <td class="p-4 font-mono text-slate-700">${money(a.remainingCapital)}</td>
                                                 <td class="p-4 text-center">${getStatusBadge(a.status)}</td>
                                                 ${isAdmin ? `
@@ -1680,7 +1703,7 @@ export const DashboardRenderer = {
                                                     </td>
                                                 ` : ''}
                                             </tr>
-                                        `).join('') || `<tr><td colspan="${isAdmin ? 8 : 7}" class="p-4 text-center text-slate-400 italic">No recovery targets enrolled for ${safeText(srcKey)}.</td></tr>`}
+                                        `).join('') || `<tr><td colspan="${isAdmin ? 9 : 8}" class="p-4 text-center text-slate-400 italic">No recovery targets enrolled for ${safeText(srcKey)}.</td></tr>`}
                                     </tbody>
                                 </table>
                             </div>
@@ -1720,10 +1743,11 @@ export const DashboardRenderer = {
                                 <tr class="text-[10px] text-slate-400 font-black border-b uppercase bg-slate-50">
                                     <th class="p-3">Priority</th>
                                     <th class="p-3">Target Asset</th>
-                                    <th class="p-3">Full Cost</th>
-                                    <th class="p-3">Recovered To Date</th>
-                                    <th class="p-3">Period Allocation</th>
-                                    <th class="p-3">Remaining Capital</th>
+                                    <th class="p-3">Original Cost</th>
+                                    <th class="p-3">Recovered Through Closed Months</th>
+                                    <th class="p-3">Current Month Provisional</th>
+                                    <th class="p-3">Projected Total Recovered</th>
+                                    <th class="p-3">Projected Remaining Balance</th>
                                     <th class="p-3 text-center">Status</th>
                                     ${isAdmin ? `<th class="p-3 text-center">Actions</th>` : ''}
                                 </tr>
@@ -1734,9 +1758,10 @@ export const DashboardRenderer = {
                                         <td class="p-4 font-mono text-slate-400">#${a.priority || idx+1}</td>
                                         <td class="p-4 text-slate-800 font-bold">${safeText(a.name)}</td>
                                         <td class="p-4 font-mono">${money(a.targetAmount)}</td>
-                                        <td class="p-4 font-mono text-slate-500">${typeof a.openingRecovered === 'number' ? money(a.openingRecovered) : a.openingRecovered}</td>
+                                        <td class="p-4 font-mono text-slate-500">${money(a.confirmedRecovered !== undefined ? a.confirmedRecovered : a.openingRecovered)}</td>
                                         <td class="p-4 font-mono font-bold text-emerald-600">+ ${money(a.currentPeriodAllocation)}</td>
-                                        <td class="p-4 font-mono text-slate-700">${typeof a.remainingCapital === 'number' ? money(a.remainingCapital) : a.remainingCapital}</td>
+                                        <td class="p-4 font-mono font-bold text-slate-800">${money(a.closingRecovered)}</td>
+                                        <td class="p-4 font-mono text-slate-700">${money(a.remainingCapital)}</td>
                                         <td class="p-4 text-center">${getStatusBadge(a.status)}</td>
                                         ${isAdmin ? `
                                             <td class="p-4 text-center whitespace-nowrap">
@@ -1747,7 +1772,7 @@ export const DashboardRenderer = {
                                             </td>
                                         ` : ''}
                                     </tr>
-                                `).join('') : `<tr><td colspan="${isAdmin ? 8 : 7}" class="p-4 text-center text-slate-400 italic font-medium">No general branch recovery targets enrolled.</td></tr>`}
+                                `).join('') : `<tr><td colspan="${isAdmin ? 9 : 8}" class="p-4 text-center text-slate-400 italic font-medium">No general branch recovery targets enrolled.</td></tr>`}
                             </tbody>
                         </table>
                     </div>
@@ -1785,10 +1810,11 @@ export const DashboardRenderer = {
                                 <tr class="text-[10px] text-slate-400 font-black border-b uppercase bg-slate-50">
                                     <th class="p-3">Priority</th>
                                     <th class="p-3">Target Asset</th>
-                                    <th class="p-3">Full Cost</th>
-                                    <th class="p-3">Recovered To Date</th>
-                                    <th class="p-3">Period Allocation</th>
-                                    <th class="p-3">Remaining Capital</th>
+                                    <th class="p-3">Original Cost</th>
+                                    <th class="p-3">Recovered Through Closed Months</th>
+                                    <th class="p-3">Current Month Provisional</th>
+                                    <th class="p-3">Projected Total Recovered</th>
+                                    <th class="p-3">Projected Remaining Balance</th>
                                     <th class="p-3 text-center">Status</th>
                                     ${isAdmin ? `<th class="p-3 text-center">Actions</th>` : ''}
                                 </tr>
@@ -1799,9 +1825,10 @@ export const DashboardRenderer = {
                                         <td class="p-4 font-mono text-slate-400">#${a.priority || idx+1}</td>
                                         <td class="p-4 text-slate-800 font-bold">${safeText(a.name)}</td>
                                         <td class="p-4 font-mono">${money(a.targetAmount)}</td>
-                                        <td class="p-4 font-mono text-slate-500">${typeof a.openingRecovered === 'number' ? money(a.openingRecovered) : a.openingRecovered}</td>
+                                        <td class="p-4 font-mono text-slate-500">${money(a.confirmedRecovered !== undefined ? a.confirmedRecovered : a.openingRecovered)}</td>
                                         <td class="p-4 font-mono font-bold text-emerald-600">+ ${money(a.currentPeriodAllocation)}</td>
-                                        <td class="p-4 font-mono text-slate-700">${typeof a.remainingCapital === 'number' ? money(a.remainingCapital) : a.remainingCapital}</td>
+                                        <td class="p-4 font-mono font-bold text-slate-800">${money(a.closingRecovered)}</td>
+                                        <td class="p-4 font-mono text-slate-700">${money(a.remainingCapital)}</td>
                                         <td class="p-4 text-center">${getStatusBadge(a.status)}</td>
                                         ${isAdmin ? `
                                             <td class="p-4 text-center whitespace-nowrap">
@@ -1812,7 +1839,7 @@ export const DashboardRenderer = {
                                             </td>
                                         ` : ''}
                                     </tr>
-                                `).join('') : `<tr><td colspan="${isAdmin ? 8 : 7}" class="p-4 text-center text-slate-400 italic font-medium">No recovery targets enrolled.</td></tr>`}
+                                `).join('') : `<tr><td colspan="${isAdmin ? 9 : 8}" class="p-4 text-center text-slate-400 italic font-medium">No recovery targets enrolled.</td></tr>`}
                             </tbody>
                         </table>
                     </div>

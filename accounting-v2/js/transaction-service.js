@@ -15,6 +15,27 @@ import { DataService } from './data-service.js';
  */
 
 export const TransactionService = {
+    async checkBackdatedTransactionPolicy(txDate) {
+        if (!txDate || typeof txDate !== 'string') return;
+
+        const match = txDate.match(/^(\d{4})[-/](\d{1,2})/);
+        if (!match) return;
+
+        const y = parseInt(match[1], 10);
+        const m = parseInt(match[2], 10);
+        const txPeriodKey = `${y}-${String(m).padStart(2, '0')}`;
+
+        const now = new Date();
+        const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+        if (txPeriodKey < currentMonthKey) {
+            const hasLockedLedger = (DataService.recoveryLedger || []).some(entry => entry && entry.periodKey === txPeriodKey);
+            if (hasLockedLedger) {
+                await SettingsService.flagRecoveryPeriodForRecalculation(txPeriodKey);
+            }
+        }
+    },
+
     async recordIncome(data) {
         const payload = {
             schemaVersion: 2,
@@ -44,6 +65,7 @@ export const TransactionService = {
 
         const docRef = await addDoc(logCol, payload);
         await SettingsService.logAudit("income_added", "transaction", docRef.id, null, payload);
+        await this.checkBackdatedTransactionPolicy(data.transactionDate);
         return docRef.id;
     },
 
@@ -80,6 +102,7 @@ export const TransactionService = {
 
         const docRef = await addDoc(logCol, payload);
         await SettingsService.logAudit("expense_added", "transaction", docRef.id, null, payload);
+        await this.checkBackdatedTransactionPolicy(data.transactionDate);
         return docRef.id;
     },
 
@@ -104,5 +127,8 @@ export const TransactionService = {
         });
 
         await SettingsService.logAudit("transaction_edit", "transaction", id, before, payload);
+        if (payload.transactionDate) {
+            await this.checkBackdatedTransactionPolicy(payload.transactionDate);
+        }
     }
 };

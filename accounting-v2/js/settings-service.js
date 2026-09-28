@@ -765,5 +765,104 @@ export const SettingsService = {
         }
 
         return results;
+    },
+
+    async flagRecoveryPeriodForRecalculation(periodKey) {
+        if (!periodKey || !DataService.recoveryLedger) return;
+        const ledger = JSON.parse(JSON.stringify(DataService.recoveryLedger));
+        let changed = false;
+        ledger.forEach(entry => {
+            if (entry && entry.periodKey === periodKey) {
+                entry.status = "RECALCULATION REQUIRED";
+                entry.recalculationRequired = true;
+                changed = true;
+            }
+        });
+        if (changed) {
+            await this.saveSettingsField('recoveryLedger', ledger);
+            await this.logAudit("recovery_period_recalculation_flagged", "recovery_ledger", periodKey, null, null, `Flagged ${periodKey} for recalculation due to backdated transaction`);
+            DataService.recoveryLedger = ledger;
+            DataService.recomputeEngine();
+        }
+    },
+
+    async recalculateAndLockPeriod(periodKey) {
+        if (!periodKey) return;
+        const currentLedger = JSON.parse(JSON.stringify(DataService.recoveryLedger || [])).filter(e => e.periodKey !== periodKey);
+
+        const rolloverResult = RecoveryService.finalizeMonthRecovery(periodKey, DataService.normalizedLogs, DataService.getAssets(), currentLedger, DataService.currentUser?.username || "Admin");
+        if (rolloverResult.finalized && rolloverResult.updatedLedger) {
+            await this.saveSettingsField('recoveryLedger', rolloverResult.updatedLedger);
+            await this.logAudit("recovery_period_recalculated", "recovery_ledger", periodKey, null, {
+                periodKey,
+                entriesCount: rolloverResult.newLedgerEntries?.length || 0
+            }, `Admin recalculated and re-locked recovery allocations for ${periodKey}`);
+            DataService.recoveryLedger = rolloverResult.updatedLedger;
+            DataService.recomputeEngine();
+        }
+    },
+
+    runPhase2RecoveryTests() {
+        const results = {
+            monthRolloverTest: "FAIL",
+            currentProfitChangeTest: "FAIL",
+            historicalImmutabilityTest: "FAIL",
+            refreshTest: "FAIL",
+            duplicateFinalizationTest: "FAIL"
+        };
+
+        const mockAssets = [
+            { id: "test_target_1", name: "Test Machine", cost: 20000, openingRecovered: 0, priority: 1, recoveryPercent: 0.50, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY" }
+        ];
+
+        // 1. Rollover Test
+        const mockLogsSep = [
+            { transactionDate: "2026-09-10", type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 3000 }
+        ];
+        const resSep = RecoveryService.finalizeMonthRecovery("2026-09", mockLogsSep, mockAssets, [], "TestRunner");
+        if (resSep.finalized && resSep.newLedgerEntries?.length === 1 && resSep.newLedgerEntries[0].allocatedAmount === 1500) {
+            results.monthRolloverTest = "PASS";
+        }
+
+        // 2. Current Profit Change Test
+        const mockLogsOct1 = [
+            { transactionDate: "2026-10-05", type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 2000 }
+        ];
+        const prov1 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", mockLogsOct1, mockAssets, resSep.updatedLedger, "2026-10");
+        const mockLogsOct2 = [
+            { transactionDate: "2026-10-05", type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 3000 }
+        ];
+        const prov2 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", mockLogsOct2, mockAssets, resSep.updatedLedger, "2026-10");
+        if (prov1.allocatedTotal === 1000 && prov2.allocatedTotal === 1500) {
+            results.currentProfitChangeTest = "PASS";
+        }
+
+        // 3. Historical Immutability Test
+        const sepEntryBefore = resSep.updatedLedger.find(e => e.periodKey === "2026-09" && e.targetId === "test_target_1");
+        const mockLogsOct3 = [
+            { transactionDate: "2026-10-05", type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 10000 },
+            { transactionDate: "2026-10-06", type: "expense", branch: "Cabagñan", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 4000 }
+        ];
+        RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", mockLogsOct3, mockAssets, resSep.updatedLedger, "2026-10");
+        const sepEntryAfter = resSep.updatedLedger.find(e => e.periodKey === "2026-09" && e.targetId === "test_target_1");
+        if (sepEntryBefore.allocatedAmount === 1500 && sepEntryAfter.allocatedAmount === 1500) {
+            results.historicalImmutabilityTest = "PASS";
+        }
+
+        // 4. Refresh Test
+        const simulatedPersistence = JSON.parse(JSON.stringify(resSep.updatedLedger));
+        const reloadedConfirmed = RecoveryService.getConfirmedRecovered("test_target_1", simulatedPersistence, "2026-10");
+        if (reloadedConfirmed === 1500) {
+            results.refreshTest = "PASS";
+        }
+
+        // 5. Duplicate Finalization Test
+        const dupRun1 = RecoveryService.finalizeMonthRecovery("2026-09", mockLogsSep, mockAssets, resSep.updatedLedger, "TestRunner");
+        const dupRun2 = RecoveryService.finalizeMonthRecovery("2026-09", mockLogsSep, mockAssets, resSep.updatedLedger, "TestRunner");
+        if (dupRun1.finalized === false && dupRun2.finalized === false) {
+            results.duplicateFinalizationTest = "PASS";
+        }
+
+        return results;
     }
 };

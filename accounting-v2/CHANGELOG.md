@@ -1,5 +1,28 @@
 # JGB ACCOUNTING V2 - CHANGELOG
 
+## [1.0.12] - Phase 2 Monthly Recovery Carry-Forward
+### Added
+- Durable monthly recovery carry-forward engine in `recovery-service.js`.
+- Automatic month rollover detection and idempotent period finalization into Firestore `recoveryLedger`.
+- Backdated transaction protection flagging closed periods as `RECALCULATION REQUIRED` with explicit Admin recalculation trigger.
+- Clear distinction in Recovery Queue UI between Original Cost, Recovered Through Closed Months, Current Month Provisional, Projected Total Recovered, and Projected Remaining Balance.
+
+### Changed
+- `recovery-service.js`: Added `getConfirmedRecovered`, `finalizeMonthRecovery`, `checkAndRolloverClosedMonths`.
+- `data-service.js`: Integrated `recoveryLedger` real-time sync and automatic month rollover.
+- `accounting-service.js`: Updated recovery calculations to incorporate locked recovery ledger history.
+- `transaction-service.js`: Integrated `checkBackdatedTransactionPolicy` to flag closed periods when backdated entries occur.
+- `settings-service.js`: Added `flagRecoveryPeriodForRecalculation`, `recalculateAndLockPeriod`, and test suite `runPhase2RecoveryTests`.
+- `dashboard-renderer.js` & `ui-controller.js`: Updated Recovery Queue UI rendering with carry-forward fields, labels, and recalculation action.
+
+### Tests Passed
+- Month Rollover Test: PASS.
+- Current Profit Change Test: PASS.
+- Historical Immutability Test: PASS.
+- Refresh / Restart Persistence Test: PASS.
+- Duplicate Finalization Protection Test: PASS.
+- Full Regression Test Suite: ALL PASS.
+
 ## [1.0.11] - 2026-03-30
 ### Added
 - Future-date protection during transaction entry with confirmation prompt.

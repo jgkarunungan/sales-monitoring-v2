@@ -594,6 +594,19 @@ export const UIController = {
             this.showAddSourceModal();
         });
 
+        document.getElementById('btnRecalculatePeriod')?.addEventListener('click', async () => {
+            const btn = document.getElementById('btnRecalculatePeriod');
+            const periodKey = btn?.getAttribute('data-period');
+            if (periodKey && confirm(`Recalculate and re-lock recovery allocations for closed period ${periodKey}?`)) {
+                try {
+                    await SettingsService.recalculateAndLockPeriod(periodKey);
+                    alert(`Successfully recalculated and re-locked recovery for ${periodKey}`);
+                } catch (err) {
+                    alert("Error recalculating period: " + err.message);
+                }
+            }
+        });
+
         document.querySelectorAll('[data-edit-target]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const id = btn.getAttribute('data-edit-target');

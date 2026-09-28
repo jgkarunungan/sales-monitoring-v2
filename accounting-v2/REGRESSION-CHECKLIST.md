@@ -34,3 +34,13 @@ Perform all tests before marking any new task complete.
 - [ ] No "undefined" text
 - [ ] No "NaN" or "₱NaN"
 - [ ] Missing history marked "Opening history required"
+
+## MONTHLY RECOVERY CARRY-FORWARD
+- [ ] Current month recovery allocation is dynamic (provisional)
+- [ ] Closed month recovery allocation is locked in Firestore ledger
+- [ ] Confirmed recovery carries forward correctly into subsequent months
+- [ ] Idempotent month rollover (no duplicate ledger entries created on refresh or restart)
+- [ ] Backdated transactions in locked closed months flag `RECALCULATION REQUIRED`
+- [ ] Admin explicit recalculation and re-locking works cleanly
+- [ ] No double counting of current month provisional in confirmed recovered
+- [ ] Baseline `openingRecovered` preserved and never overwritten

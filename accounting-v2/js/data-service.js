@@ -9,6 +9,8 @@ import {
 } from './firebase-config.js';
 import { normalizeLog } from './normalization-service.js';
 import { AccountingService } from './accounting-service.js';
+import { RecoveryService } from './recovery-service.js';
+import { SettingsService } from './settings-service.js';
 
 export const DEFAULT_PARTNERS = [
     { id: "p_iraya_pisonet", name: "Iraya Pisonet", type: "Pisonet", location: "Iraya", share: 0.50, status: "Active" }
@@ -26,6 +28,9 @@ export const DataService = {
     projectedExpenses: [],
     incomeSources: [],
     auditLogs: [],
+    recoveryLedger: [],
+    _isRolloverInProgress: false,
+    _lastRolloverAttempt: null,
     connectionStatus: 'CONNECTING',
     lastSync: 'Never',
     error: null,
@@ -176,12 +181,14 @@ export const DataService = {
                         id: (b.id !== undefined && b.id !== null) ? String(b.id) : (`bill_${idx}_${(b.name || 'tmpl').replace(/\s+/g, '_')}`)
                     }));
                     this.incomeSources = data.incomeSources || [];
+                    this.recoveryLedger = Array.isArray(data.recoveryLedger) ? data.recoveryLedger : [];
                 } else {
                     this.settings = {};
                     this.partners = DEFAULT_PARTNERS;
                     this.assets = [];
                     this.projectedExpenses = [];
                     this.incomeSources = [];
+                    this.recoveryLedger = [];
                 }
 
                 this.settingsLoaded = true;
@@ -274,11 +281,38 @@ export const DataService = {
         this.normalizedLogs = this.rawLogs.map(log => normalizeLog(log, this.partners));
         console.log("[BOOT] Normalization complete");
 
+        // Automatic Month Rollover Check for immediately preceding closed month
+        if (this.settingsLoaded && this.logsLoaded && !this._isRolloverInProgress) {
+            const currentMonthKey = RecoveryService.getCurrentMonthKey();
+            const previousMonthKey = RecoveryService.getPreviousMonthKey(currentMonthKey);
+
+            const alreadyFinalized = (this.recoveryLedger || []).some(entry => entry && entry.periodKey === previousMonthKey);
+            if (!alreadyFinalized && this._lastRolloverAttempt !== previousMonthKey) {
+                this._isRolloverInProgress = true;
+                this._lastRolloverAttempt = previousMonthKey;
+                try {
+                    const rolloverResult = RecoveryService.finalizeMonthRecovery(previousMonthKey, this.normalizedLogs, this.getAssets(), this.recoveryLedger, this.currentUser?.username || "System");
+                    if (rolloverResult.finalized && rolloverResult.updatedLedger) {
+                        this.recoveryLedger = rolloverResult.updatedLedger;
+                        SettingsService.saveSettingsField('recoveryLedger', rolloverResult.updatedLedger);
+                        SettingsService.logAudit("recovery_period_closed", "recovery_ledger", previousMonthKey, null, {
+                            periodKey: previousMonthKey,
+                            entriesCount: rolloverResult.newLedgerEntries?.length || 0
+                        }, `Automatically finalized recovery allocations for ${previousMonthKey}`);
+                    }
+                } catch (err) {
+                    console.error("Error during automatic month rollover:", err);
+                } finally {
+                    this._isRolloverInProgress = false;
+                }
+            }
+        }
+
         const filteredLogs = AccountingService.filterLogsByPeriod(this.normalizedLogs, this.currentPeriodState);
 
         const currentAssets = this.getAssets();
-        this.cabagnanResult = AccountingService.calculateCabagnan(filteredLogs, currentAssets);
-        this.irayaResult = AccountingService.calculateIraya(filteredLogs, currentAssets);
+        this.cabagnanResult = AccountingService.calculateCabagnan(filteredLogs, currentAssets, this.recoveryLedger, this.currentPeriodState);
+        this.irayaResult = AccountingService.calculateIraya(filteredLogs, currentAssets, this.recoveryLedger, this.currentPeriodState);
         this.partnerPisoWifiResult = AccountingService.calculatePartnerPisoWifi(filteredLogs, this.getPartners());
 
         this.consolidatedResult = AccountingService.calculateConsolidated(

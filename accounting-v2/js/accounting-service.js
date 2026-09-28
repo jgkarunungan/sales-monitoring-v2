@@ -607,11 +607,16 @@ export const AccountingService = {
         return recencyRows;
     },
 
-    calculateCabagnan(filteredLogs, assets) {
+    calculateCabagnan(filteredLogs, assets, recoveryLedger = [], periodState = null) {
         const branchLogs = filteredLogs.filter(l => l.branch === "Cabagñan");
 
+        let targetPeriodKey = null;
+        if (periodState && typeof periodState === 'object' && periodState.period === 'Specific Month' && periodState.month) {
+            targetPeriodKey = periodState.month;
+        }
+
         // Compute Coffee Vendo Self-Recovery FIRST
-        const coffeeSelfRecovery = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", branchLogs, assets);
+        const coffeeSelfRecovery = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", branchLogs, assets, recoveryLedger, targetPeriodKey);
 
         // Base core sources
         const coreSourceTypes = ["Pisonet", "PisoWiFi", "Coffee Vendo", "Printing / Photocopy"];
@@ -680,7 +685,7 @@ export const AccountingService = {
         const totalBranchExpenses = branchBills.aleco.amount + branchBills.dctv.amount + otherBranchExpenses;
         const profitBeforeRecovery = totalSourceContribution - totalBranchExpenses;
 
-        const waterfallResult = RecoveryService.calculateBranchWaterfall("Cabagñan", profitBeforeRecovery, assets, true);
+        const waterfallResult = RecoveryService.calculateBranchWaterfall("Cabagñan", profitBeforeRecovery, assets, true, recoveryLedger, targetPeriodKey);
         const profitAfterRecovery = waterfallResult.profitAfterRecovery;
         const savingsContribution = profitAfterRecovery > 0 ? profitAfterRecovery * 0.05 : 0;
         const finalBranchEarnings = profitAfterRecovery - savingsContribution;
@@ -721,8 +726,13 @@ export const AccountingService = {
         };
     },
 
-    calculateIraya(filteredLogs, assets) {
+    calculateIraya(filteredLogs, assets, recoveryLedger = [], periodState = null) {
         const branchLogs = filteredLogs.filter(l => l.branch === "Iraya");
+
+        let targetPeriodKey = null;
+        if (periodState && typeof periodState === 'object' && periodState.period === 'Specific Month' && periodState.month) {
+            targetPeriodKey = periodState.month;
+        }
 
         // Pisonet Source (Shared)
         const pisonetLogs = branchLogs.filter(l => l.source === "Pisonet");
@@ -806,7 +816,7 @@ export const AccountingService = {
         const totalOwnerSharedResponsibility = sharedBills.aleco.ownerAmount + sharedBills.dctv.ownerAmount + otherSharedExpensesOwner;
         const profitBeforeRecovery = totalOwnerSourceContribution - totalOwnerSharedResponsibility - otherOwnerBranchExpenses;
 
-        const waterfallResult = RecoveryService.calculateBranchWaterfall("Iraya", profitBeforeRecovery, assets, true);
+        const waterfallResult = RecoveryService.calculateBranchWaterfall("Iraya", profitBeforeRecovery, assets, true, recoveryLedger, targetPeriodKey);
         const profitAfterRecovery = waterfallResult.profitAfterRecovery;
         const savingsContribution = profitAfterRecovery > 0 ? profitAfterRecovery * 0.05 : 0;
         const finalOwnerEarnings = profitAfterRecovery - savingsContribution;
@@ -1697,13 +1707,17 @@ export const AccountingService = {
         tests.lossProtectionFormula = "PASS";
 
         // Required Recovery Test (Section 22)
-        const t1 = RecoveryService.calculateBranchWaterfall("Cabagñan", 10000, [], true);
+        const mockWaterfallAssets = [
+            { id: "t1", name: "Target 1", cost: 10000, openingRecovered: 0, priority: 1, recoveryPercent: 0.50, branch: "Cabagñan", recoveryFundingMode: "BRANCH_RECOVERY" },
+            { id: "t2", name: "Target 2", cost: 10000, openingRecovered: 0, priority: 2, recoveryPercent: 0.50, branch: "Cabagñan", recoveryFundingMode: "BRANCH_RECOVERY" }
+        ];
+        const t1 = RecoveryService.calculateBranchWaterfall("Cabagñan", 10000, mockWaterfallAssets, true);
         if (t1.recoveryPool === 5000 && t1.allocations[0]?.status === "ACTIVE" && t1.allocations[1]?.status === "WAITING" && t1.allocatedTotal === 5000) {
             tests.recoveryAllocationTest = "PASS";
         }
 
         // Required Zero-Profit Test (Section 23)
-        const t2 = RecoveryService.calculateBranchWaterfall("Cabagñan", 0, [], true);
+        const t2 = RecoveryService.calculateBranchWaterfall("Cabagñan", 0, mockWaterfallAssets, true);
         if (t2.recoveryPool === 0 && t2.allocations[0]?.status === "ACTIVE") {
             tests.zeroProfitRecoveryTest = "PASS";
         }

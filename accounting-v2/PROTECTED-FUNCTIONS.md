@@ -261,3 +261,40 @@ Once a function or logic path is marked **PROTECTED**, it must not be refactored
 *   **Status:** PASS
 *   **Protected:** YES
 
+## 14. PHASE 2 MONTHLY RECOVERY CARRY-FORWARD
+### Current Month Provisional Recovery
+*   **Module:** `recovery-service.js` / `accounting-service.js`
+*   **Rule:** Current open month recovery allocations are dynamic (provisional) and adjust live with current month Operating Profit.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Closed Month Recovery Lock
+*   **Module:** `recovery-service.js` / `settings-service.js`
+*   **Rule:** Closed months' final recovery allocations are locked and persisted into `recoveryLedger` in Firestore (`jgs_settings/auth`). Closed month historical recovery allocations are immutable.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Carry-Forward & Confirmed Recovered
+*   **Module:** `recovery-service.js`
+*   **Rule:** `confirmedRecovered = openingRecovered + sum(locked ledger allocations for periodKey < currentMonthKey)`. Carries forward into subsequent open months without double-counting current month provisional allocations.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Idempotent Period Closing & Month Rollover
+*   **Module:** `recovery-service.js` / `data-service.js`
+*   **Rule:** Automatically finalizes immediately preceding closed month when operating in a new calendar month. Idempotent check ensures exactly ONE authoritative recovery record per target/period.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### No Retroactive Recovery Fabrication
+*   **Module:** `recovery-service.js`
+*   **Rule:** Does not manufacture historical recovery for old months merely because income exists. Uses verified baseline `openingRecovered` plus verified locked ledger entries.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Backdated Recovery Recalculation Policy
+*   **Module:** `transaction-service.js` / `settings-service.js`
+*   **Rule:** Recording or editing a backdated transaction in a locked closed month flags the period as `RECALCULATION REQUIRED` without silently rewriting history, requiring explicit Admin confirmation to recalculate and re-lock.
+*   **Status:** PASS
+*   **Protected:** YES
+
