@@ -37,14 +37,81 @@ export const UIController = {
             });
         });
 
-        // Attach reporting period change listeners
+        // Attach reporting period change listeners (Overview Header)
         const selectPeriod = document.getElementById('periodSelect');
-        if (selectPeriod) {
-            selectPeriod.addEventListener('change', (e) => {
-                DataService.setPeriod(e.target.value);
-                this.transactionLogState.period = e.target.value;
+        const headerMonth = document.getElementById('headerSpecificMonth');
+        const headerCustomContainer = document.getElementById('headerCustomRangeContainer');
+        const headerCustomStart = document.getElementById('headerCustomStart');
+        const headerCustomEnd = document.getElementById('headerCustomEnd');
+
+        const updateHeaderPeriodUI = () => {
+            if (!selectPeriod) return;
+            const pVal = selectPeriod.value;
+
+            if (pVal === 'Specific Month') {
+                if (headerMonth) {
+                    headerMonth.classList.remove('hidden');
+                    if (!headerMonth.value) {
+                        const now = new Date();
+                        headerMonth.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                    }
+                }
+                if (headerCustomContainer) headerCustomContainer.classList.add('hidden');
+            } else if (pVal === 'Custom Date Range' || pVal === 'Custom Range') {
+                if (headerMonth) headerMonth.classList.add('hidden');
+                if (headerCustomContainer) {
+                    headerCustomContainer.classList.remove('hidden');
+                    headerCustomContainer.classList.add('flex');
+                }
+            } else {
+                if (headerMonth) headerMonth.classList.add('hidden');
+                if (headerCustomContainer) {
+                    headerCustomContainer.classList.add('hidden');
+                    headerCustomContainer.classList.remove('flex');
+                }
+            }
+        };
+
+        const triggerOverviewPeriodUpdate = () => {
+            if (!selectPeriod) return;
+            const pVal = selectPeriod.value;
+            const mVal = headerMonth ? headerMonth.value : null;
+            const cStart = headerCustomStart ? headerCustomStart.value : null;
+            const cEnd = headerCustomEnd ? headerCustomEnd.value : null;
+
+            if ((pVal === 'Custom Date Range' || pVal === 'Custom Range') && cStart && cEnd) {
+                if (cStart > cEnd) {
+                    alert('Start date must be before or equal to end date.');
+                    return;
+                }
+            }
+
+            DataService.setPeriodState({
+                period: pVal,
+                month: mVal,
+                customStart: cStart,
+                customEnd: cEnd
             });
-            selectPeriod.value = DataService.currentPeriod;
+        };
+
+        if (selectPeriod) {
+            selectPeriod.addEventListener('change', () => {
+                updateHeaderPeriodUI();
+                triggerOverviewPeriodUpdate();
+            });
+        }
+        if (headerMonth) {
+            headerMonth.addEventListener('change', () => {
+                triggerOverviewPeriodUpdate();
+            });
+        }
+        if (headerCustomStart && headerCustomEnd) {
+            headerCustomStart.addEventListener('change', () => {
+                if (headerCustomEnd.value) triggerOverviewPeriodUpdate();
+            });
+            headerCustomEnd.addEventListener('change', () => {
+                if (headerCustomStart.value) triggerOverviewPeriodUpdate();
+            });
         }
 
         // Login / Logout
@@ -263,18 +330,39 @@ export const UIController = {
 
     applyTransactionLogQuery() {
         const periodEl = document.getElementById('txLogPeriod');
+        const monthEl = document.getElementById('txLogMonth');
+        const customStartEl = document.getElementById('txLogCustomStart');
+        const customEndEl = document.getElementById('txLogCustomEnd');
+
         const typeEl = document.getElementById('txLogType');
         const branchEl = document.getElementById('txLogBranch');
         const sourceEl = document.getElementById('txLogSource');
         const partnerEl = document.getElementById('txLogPartner');
         const searchEl = document.getElementById('txLogSearch');
 
-        if (periodEl) this.transactionLogState.period = periodEl.value;
-        if (typeEl) this.transactionLogState.type = typeEl.value;
-        if (branchEl) this.transactionLogState.branch = branchEl.value;
-        if (sourceEl) this.transactionLogState.source = sourceEl.value;
-        if (partnerEl) this.transactionLogState.partner = partnerEl.value;
-        if (searchEl) this.transactionLogState.search = searchEl.value;
+        const pVal = periodEl ? periodEl.value : 'All Time';
+        const mVal = monthEl ? monthEl.value : null;
+        const cStart = customStartEl ? customStartEl.value : null;
+        const cEnd = customEndEl ? customEndEl.value : null;
+
+        if ((pVal === 'Custom Date Range' || pVal === 'Custom Range') && cStart && cEnd) {
+            if (cStart > cEnd) {
+                alert('Start date must be before or equal to end date.');
+                return;
+            }
+        }
+
+        this.transactionLogState = {
+            period: pVal,
+            month: mVal,
+            customStart: cStart,
+            customEnd: cEnd,
+            type: typeEl ? typeEl.value : 'All',
+            branch: branchEl ? branchEl.value : 'All',
+            source: sourceEl ? sourceEl.value : 'All',
+            partner: partnerEl ? partnerEl.value : 'All',
+            search: searchEl ? searchEl.value : ''
+        };
 
         const logs = DataService.normalizedLogs || [];
         const totalDatasetCount = logs.length;
@@ -313,6 +401,31 @@ export const UIController = {
         const searchInput = document.getElementById('txLogSearch');
         const clearBtn = document.getElementById('btnTxLogClearFilters');
 
+        const periodEl = document.getElementById('txLogPeriod');
+        const monthContainer = document.getElementById('txLogMonthContainer');
+        const customContainer = document.getElementById('txLogCustomRangeContainer');
+        const monthEl = document.getElementById('txLogMonth');
+
+        if (periodEl) {
+            periodEl.addEventListener('change', (e) => {
+                const val = e.target.value;
+                if (val === 'Specific Month') {
+                    if (monthContainer) monthContainer.classList.remove('hidden');
+                    if (customContainer) customContainer.classList.add('hidden');
+                    if (monthEl && !monthEl.value) {
+                        const now = new Date();
+                        monthEl.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                    }
+                } else if (val === 'Custom Date Range' || val === 'Custom Range') {
+                    if (monthContainer) monthContainer.classList.add('hidden');
+                    if (customContainer) customContainer.classList.remove('hidden');
+                } else {
+                    if (monthContainer) monthContainer.classList.add('hidden');
+                    if (customContainer) customContainer.classList.add('hidden');
+                }
+            });
+        }
+
         if (applyBtn) {
             applyBtn.addEventListener('click', () => {
                 this.applyTransactionLogQuery();
@@ -338,13 +451,14 @@ export const UIController = {
             clearBtn.addEventListener('click', () => {
                 this.transactionLogState = {
                     period: 'All Time',
+                    month: null,
+                    customStart: null,
+                    customEnd: null,
                     type: 'All',
                     branch: 'All',
                     source: 'All',
                     partner: 'All',
-                    search: '',
-                    customStart: null,
-                    customEnd: null
+                    search: ''
                 };
                 this.refreshView();
             });

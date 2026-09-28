@@ -1158,6 +1158,7 @@ export const DashboardRenderer = {
 
         const currentState = {
             period: state.period || 'All Time',
+            month: state.month || null,
             type: state.type || 'All',
             branch: state.branch || 'All',
             source: state.source || 'All',
@@ -1177,6 +1178,9 @@ export const DashboardRenderer = {
         // Calculate Last Collection Summary based on selected Branch, Source, Partner scope
         const collectionContext = AccountingService.determineCollectionContext(filtered, currentState);
         const collectionSummary = AccountingService.getLastCollectionSummary(logs, collectionContext);
+
+        const isSpecificMonth = currentState.period === 'Specific Month' || (currentState.period && typeof currentState.period === 'string' && currentState.period.startsWith('month:'));
+        const isCustomRange = currentState.period === 'Custom Date Range' || currentState.period === 'Custom Range';
 
         return `
             <div class="space-y-6">
@@ -1207,7 +1211,27 @@ export const DashboardRenderer = {
                                     <option value="Last 7 Days" ${currentState.period === 'Last 7 Days' ? 'selected' : ''}>Last 7 Days</option>
                                     <option value="This Month" ${currentState.period === 'This Month' ? 'selected' : ''}>This Month</option>
                                     <option value="This Year" ${currentState.period === 'This Year' || currentState.period === 'Year' ? 'selected' : ''}>This Year</option>
+                                    <option value="Specific Month" ${isSpecificMonth ? 'selected' : ''}>Specific Month</option>
+                                    <option value="Custom Date Range" ${isCustomRange ? 'selected' : ''}>Custom Date Range</option>
                                 </select>
+                            </div>
+
+                            <!-- Specific Month Input -->
+                            <div id="txLogMonthContainer" class="${isSpecificMonth ? '' : 'hidden'}">
+                                <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Select Month</label>
+                                <input type="month" id="txLogMonth" value="${currentState.month || ''}" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                            </div>
+
+                            <!-- Custom Range Inputs -->
+                            <div id="txLogCustomRangeContainer" class="${isCustomRange ? 'col-span-2' : 'hidden'} flex gap-2">
+                                <div class="flex-1">
+                                    <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">From Date</label>
+                                    <input type="date" id="txLogCustomStart" value="${currentState.customStart || ''}" class="w-full bg-slate-50 border border-slate-200 px-2 py-2 rounded-xl font-bold text-slate-700 outline-none">
+                                </div>
+                                <div class="flex-1">
+                                    <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">To Date</label>
+                                    <input type="date" id="txLogCustomEnd" value="${currentState.customEnd || ''}" class="w-full bg-slate-50 border border-slate-200 px-2 py-2 rounded-xl font-bold text-slate-700 outline-none">
+                                </div>
                             </div>
 
                             <div>

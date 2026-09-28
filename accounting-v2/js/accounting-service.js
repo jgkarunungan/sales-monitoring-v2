@@ -2,47 +2,136 @@ import { RecoveryService } from './recovery-service.js';
 import { OWNER_OPERATED_BRANCHES, normalizePartnerType } from './normalization-service.js';
 
 export const AccountingService = {
-    filterLogsByPeriod(logs, period, customStart = null, customEnd = null) {
-        if (!logs) return [];
-        if (period === 'All Time') return logs;
+    resolveDateRange(periodState, customStart = null, customEnd = null) {
+        let period = 'This Month';
+        let month = null;
+        let start = customStart;
+        let end = customEnd;
+
+        if (typeof periodState === 'object' && periodState !== null) {
+            period = periodState.period || 'This Month';
+            month = periodState.month || periodState.specificMonth || null;
+            start = periodState.customStart || periodState.startDate || customStart;
+            end = periodState.customEnd || periodState.endDate || customEnd;
+        } else if (typeof periodState === 'string') {
+            period = periodState;
+        }
+
+        if (period === 'All Time') {
+            return { mode: 'all', startTime: 0, endTime: Infinity, error: null };
+        }
 
         const now = new Date();
+        const currYear = now.getFullYear();
+        const currMonth = now.getMonth();
+        const currDate = now.getDate();
+
         let startTime = 0;
-        let endTime = now.getTime() + (2 * 24 * 60 * 60 * 1000);
+        let endTime = Infinity;
 
         if (period === 'Today') {
-            startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-            endTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).getTime();
-        } else if (period === 'This Month') {
-            startTime = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-            endTime = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime();
+            startTime = new Date(currYear, currMonth, currDate, 0, 0, 0, 0).getTime();
+            endTime = new Date(currYear, currMonth, currDate, 23, 59, 59, 999).getTime();
         } else if (period === 'Last 7 Days') {
-            startTime = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+            startTime = new Date(currYear, currMonth, currDate, 0, 0, 0, 0).getTime() - (6 * 24 * 60 * 60 * 1000);
+            endTime = new Date(currYear, currMonth, currDate, 23, 59, 59, 999).getTime();
+        } else if (period === 'This Month') {
+            startTime = new Date(currYear, currMonth, 1, 0, 0, 0, 0).getTime();
+            endTime = new Date(currYear, currMonth + 1, 0, 23, 59, 59, 999).getTime();
         } else if (period === 'This Year' || period === 'Year') {
-            startTime = new Date(now.getFullYear(), 0, 1).getTime();
-            endTime = new Date(now.getFullYear(), 11, 31, 23, 59, 59).getTime();
-        } else if (period === 'October 2023') {
-            startTime = new Date(2023, 9, 1).getTime();
-            endTime = new Date(2023, 9, 31, 23, 59, 59).getTime();
-        } else if (period === 'November 2023') {
-            startTime = new Date(2023, 10, 1).getTime();
-            endTime = new Date(2023, 10, 30, 23, 59, 59).getTime();
-        } else if (period === 'Custom Range' && customStart && customEnd) {
-            startTime = new Date(customStart).getTime();
-            endTime = new Date(customEnd).getTime();
+            startTime = new Date(currYear, 0, 1, 0, 0, 0, 0).getTime();
+            endTime = new Date(currYear, 11, 31, 23, 59, 59, 999).getTime();
+        } else if (period === 'Specific Month' || (period && typeof period === 'string' && period.startsWith('month:'))) {
+            let mStr = month;
+            if (!mStr && typeof period === 'string' && period.startsWith('month:')) {
+                mStr = period.replace('month:', '').trim();
+            }
+            if (!mStr) {
+                mStr = `${currYear}-${String(currMonth + 1).padStart(2, '0')}`;
+            }
+
+            const parts = String(mStr).split('-').map(Number);
+            const y = parts[0];
+            const m = parts[1]; // 1..12
+
+            if (!y || !m || isNaN(y) || isNaN(m) || m < 1 || m > 12) {
+                return { mode: 'invalid', startTime: 0, endTime: 0, error: 'Invalid month selection.' };
+            }
+
+            startTime = new Date(y, m - 1, 1, 0, 0, 0, 0).getTime();
+            endTime = new Date(y, m, 0, 23, 59, 59, 999).getTime();
+        } else if (period === 'Custom Date Range' || period === 'Custom Range') {
+            if (!start || !end) {
+                return { mode: 'invalid', startTime: 0, endTime: 0, error: 'Please select both From and To dates.' };
+            }
+
+            const startParts = String(start).split('-').map(Number);
+            const endParts = String(end).split('-').map(Number);
+
+            if (startParts.length < 3 || endParts.length < 3 || startParts.some(isNaN) || endParts.some(isNaN)) {
+                return { mode: 'invalid', startTime: 0, endTime: 0, error: 'Invalid date selection.' };
+            }
+
+            const startDateObj = new Date(startParts[0], startParts[1] - 1, startParts[2], 0, 0, 0, 0);
+            const endDateObj = new Date(endParts[0], endParts[1] - 1, endParts[2], 23, 59, 59, 999);
+
+            if (startDateObj.getTime() > endDateObj.getTime()) {
+                return { mode: 'invalid', startTime: 0, endTime: 0, error: 'Start date must be before or equal to end date.' };
+            }
+
+            startTime = startDateObj.getTime();
+            endTime = endDateObj.getTime();
         } else {
-            startTime = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-            endTime = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime();
+            if (period === 'October 2023') {
+                startTime = new Date(2023, 9, 1, 0, 0, 0, 0).getTime();
+                endTime = new Date(2023, 9, 31, 23, 59, 59, 999).getTime();
+            } else if (period === 'November 2023') {
+                startTime = new Date(2023, 10, 1, 0, 0, 0, 0).getTime();
+                endTime = new Date(2023, 10, 30, 23, 59, 59, 999).getTime();
+            } else {
+                startTime = new Date(currYear, currMonth, 1, 0, 0, 0, 0).getTime();
+                endTime = new Date(currYear, currMonth + 1, 0, 23, 59, 59, 999).getTime();
+            }
+        }
+
+        return { mode: 'range', startTime, endTime, error: null };
+    },
+
+    filterLogsByPeriod(logs, periodState, customStart = null, customEnd = null) {
+        if (!logs) return [];
+
+        const range = this.resolveDateRange(periodState, customStart, customEnd);
+
+        if (range.mode === 'all') {
+            return logs;
+        }
+
+        if (range.mode === 'invalid') {
+            return [];
         }
 
         return logs.filter(l => {
-            if (l.timestamp) {
-                return l.timestamp >= startTime && l.timestamp <= endTime;
+            const rawDate = l.transactionDate || (l.raw && l.raw.transactionDate) || (l.raw && l.raw.dateStr) || l.date;
+            if (rawDate && typeof rawDate === 'string') {
+                const match = rawDate.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+                if (match) {
+                    const y = parseInt(match[1], 10);
+                    const m = parseInt(match[2], 10) - 1;
+                    const d = parseInt(match[3], 10);
+                    const logTime = new Date(y, m, d, 12, 0, 0, 0).getTime();
+                    return logTime >= range.startTime && logTime <= range.endTime;
+                }
+                const dObj = new Date(rawDate);
+                if (!isNaN(dObj.getTime())) {
+                    const localTime = new Date(dObj.getFullYear(), dObj.getMonth(), dObj.getDate(), 12, 0, 0, 0).getTime();
+                    return localTime >= range.startTime && localTime <= range.endTime;
+                }
             }
-            if (l.date || l.transactionDate) {
-                const d = new Date(l.date || l.transactionDate);
-                if (!isNaN(d.getTime())) {
-                    return d.getTime() >= startTime && d.getTime() <= endTime;
+            if (l.timestamp) {
+                const dObj = new Date(l.timestamp);
+                if (!isNaN(dObj.getTime())) {
+                    const localTime = new Date(dObj.getFullYear(), dObj.getMonth(), dObj.getDate(), 12, 0, 0, 0).getTime();
+                    return localTime >= range.startTime && localTime <= range.endTime;
                 }
             }
             return false;
@@ -1703,6 +1792,38 @@ export const AccountingService = {
             tests.sourcePrintingTest = "FAIL";
             tests.sourceCrossSourceTest = "FAIL";
         }
+
+        // Dynamic Month Filter Tests
+        const mockMonthFilterLogs = [
+            { id: "mf1", transactionDate: "2026-09-10", type: "income", branch: "Cabagñan", source: "Pisonet", amount: 5000, label: "Pisonet income September" },
+            { id: "mf2", transactionDate: "2026-08-15", type: "income", branch: "Cabagñan", source: "Pisonet", amount: 4000, label: "Pisonet income August" },
+            { id: "mf3", transactionDate: "2025-09-20", type: "income", branch: "Cabagñan", source: "Pisonet", amount: 3000, label: "Pisonet income September 2025" }
+        ];
+
+        const fSep2026 = this.filterLogs(mockMonthFilterLogs, { period: "month:2026-09" });
+        const fAug2026 = this.filterLogs(mockMonthFilterLogs, { period: "month:2026-08" });
+        const fSep2025 = this.filterLogs(mockMonthFilterLogs, { period: "month:2025-09" });
+
+        tests.monthFilterSep2026 = (fSep2026.length === 1 && fSep2026[0].id === "mf1") ? "PASS" : "FAIL";
+        tests.monthFilterAug2026 = (fAug2026.length === 1 && fAug2026[0].id === "mf2") ? "PASS" : "FAIL";
+        tests.monthFilterSep2025 = (fSep2025.length === 1 && fSep2025[0].id === "mf3") ? "PASS" : "FAIL";
+
+        const fCombined = this.filterLogs(mockMonthFilterLogs, { period: "month:2026-09", search: "pisonet" });
+        tests.monthFilterCombinedSearch = (fCombined.length === 1 && fCombined[0].id === "mf1") ? "PASS" : "FAIL";
+
+        // Shared Period Resolver & Date Filter System Verification Tests
+        const res2032 = this.resolveDateRange({ period: "Specific Month", month: "2032-08" });
+        const resFeb2028 = this.resolveDateRange({ period: "Specific Month", month: "2028-02" }); // Leap year
+        const resValidCustom = this.resolveDateRange({ period: "Custom Date Range", customStart: "2026-08-15", customEnd: "2026-09-10" });
+        const resInvalidCustom = this.resolveDateRange({ period: "Custom Date Range", customStart: "2026-09-10", customEnd: "2026-08-15" });
+
+        const feb28End = new Date(resFeb2028.endTime);
+        const isFeb29 = feb28End.getDate() === 29 && feb28End.getMonth() === 1;
+
+        tests.futureProofResolver2032Test = (res2032.mode === 'range' && res2032.error === null) ? "PASS" : "FAIL";
+        tests.leapYearFeb2028Test = isFeb29 ? "PASS" : "FAIL";
+        tests.customRangeInclusiveTest = (resValidCustom.mode === 'range' && resValidCustom.error === null) ? "PASS" : "FAIL";
+        tests.invalidCustomRangeValidationTest = (resInvalidCustom.mode === 'invalid' && resInvalidCustom.error !== null) ? "PASS" : "FAIL";
 
         return tests;
     }

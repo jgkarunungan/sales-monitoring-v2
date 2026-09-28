@@ -56,7 +56,28 @@ export const DataService = {
     },
 
     // Master Computed ViewModel states
-    currentPeriod: 'This Month',
+    currentPeriodState: {
+        period: 'This Month',
+        month: null,
+        customStart: null,
+        customEnd: null
+    },
+
+    get currentPeriod() {
+        const p = this.currentPeriodState.period || 'This Month';
+        if (p === 'Specific Month' && this.currentPeriodState.month) {
+            const parts = this.currentPeriodState.month.split('-').map(Number);
+            const y = parts[0];
+            const m = parts[1];
+            const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            if (y && m && m >= 1 && m <= 12) return `${monthNames[m - 1]} ${y}`;
+        }
+        if ((p === 'Custom Date Range' || p === 'Custom Range') && this.currentPeriodState.customStart && this.currentPeriodState.customEnd) {
+            return `${this.currentPeriodState.customStart} to ${this.currentPeriodState.customEnd}`;
+        }
+        return p;
+    },
+
     cabagnanResult: null,
     irayaResult: null,
     partnerPisoWifiResult: null,
@@ -76,7 +97,24 @@ export const DataService = {
     },
 
     setPeriod(periodName) {
-        this.currentPeriod = periodName;
+        if (typeof periodName === 'object' && periodName !== null) {
+            this.setPeriodState(periodName);
+        } else {
+            this.setPeriodState({ period: periodName });
+        }
+    },
+
+    setPeriodState(state) {
+        if (typeof state === 'string') {
+            this.currentPeriodState = { period: state, month: null, customStart: null, customEnd: null };
+        } else if (typeof state === 'object' && state !== null) {
+            this.currentPeriodState = {
+                period: state.period || 'This Month',
+                month: state.month || null,
+                customStart: state.customStart || null,
+                customEnd: state.customEnd || null
+            };
+        }
         this.recomputeEngine();
     },
 
@@ -236,7 +274,7 @@ export const DataService = {
         this.normalizedLogs = this.rawLogs.map(log => normalizeLog(log, this.partners));
         console.log("[BOOT] Normalization complete");
 
-        const filteredLogs = AccountingService.filterLogsByPeriod(this.normalizedLogs, this.currentPeriod);
+        const filteredLogs = AccountingService.filterLogsByPeriod(this.normalizedLogs, this.currentPeriodState);
 
         const currentAssets = this.getAssets();
         this.cabagnanResult = AccountingService.calculateCabagnan(filteredLogs, currentAssets);
@@ -289,7 +327,7 @@ export const DataService = {
     getDiagnostics() {
         const totalRaw = this.rawLogs.length;
         const totalNormalized = this.normalizedLogs.length;
-        const filteredLogs = AccountingService.filterLogsByPeriod(this.normalizedLogs, this.currentPeriod);
+        const filteredLogs = AccountingService.filterLogsByPeriod(this.normalizedLogs, this.currentPeriodState);
         
         const unclassifiedBranchCount = filteredLogs.filter(l => l.branch === 'Unclassified').length;
         const unclassifiedSourceCount = filteredLogs.filter(l => l.source === 'Unclassified').length;
