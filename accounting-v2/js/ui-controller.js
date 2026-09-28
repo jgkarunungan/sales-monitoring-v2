@@ -1084,6 +1084,14 @@ export const UIController = {
             if (!amountEl.value || amountEl.value <= 0) return alert("Please enter a valid amount.");
             if (!dateEl.value) return alert("Please select a date.");
 
+            const selectedDateStr = dateEl.value;
+            const now = new Date();
+            const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            if (selectedDateStr > todayStr) {
+                const proceed = confirm(`⚠️ This transaction date is in the future (${selectedDateStr}).\n\nAre you sure you want to proceed with recording a future-dated transaction?`);
+                if (!proceed) return;
+            }
+
             const selectedSourceOption = sourceEl.options[sourceEl.selectedIndex];
             const sourceId = selectedSourceOption.getAttribute('data-id');
             const sourceType = selectedSourceOption.getAttribute('data-type') || sourceEl.value;
@@ -1263,6 +1271,14 @@ export const UIController = {
             if (!amountEl.value || amountEl.value <= 0) return alert("Please enter a valid amount.");
             if (!dateEl.value) return alert("Please select a date.");
             if (categoryEl.value === 'Other' && !labelEl.value) return alert("Please provide a description for 'Other' category.");
+
+            const selectedDateStr = dateEl.value;
+            const now = new Date();
+            const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            if (selectedDateStr > todayStr) {
+                const proceed = confirm(`⚠️ This transaction date is in the future (${selectedDateStr}).\n\nAre you sure you want to proceed with recording a future-dated transaction?`);
+                if (!proceed) return;
+            }
 
             const { ownerPct, ownerResp, partnerResp } = updatePreview();
             const partnerObj = !partnerCont.classList.contains('hidden') ? DataService.partners.find(p => p.name === partnerEl.value) : null;

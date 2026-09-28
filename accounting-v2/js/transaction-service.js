@@ -39,7 +39,7 @@ export const TransactionService = {
             savingsAllocation: 0,
             pendingBalance: 0,
             timestamp: serverTimestamp(),
-            dateStr: new Date(data.transactionDate).toLocaleDateString()
+            dateStr: data.transactionDate
         };
 
         const docRef = await addDoc(logCol, payload);
@@ -75,7 +75,7 @@ export const TransactionService = {
             savingsAllocation: 0,
             pendingBalance: data.partnerExpenseResponsibility || 0,
             timestamp: serverTimestamp(),
-            dateStr: new Date(data.transactionDate).toLocaleDateString()
+            dateStr: data.transactionDate
         };
 
         const docRef = await addDoc(logCol, payload);

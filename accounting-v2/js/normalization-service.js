@@ -41,6 +41,205 @@ export const normalizeExpenseCategory = (label) => {
     return null;
 };
 
+export const resolveAuthoritativeLogDate = (rawDoc) => {
+    if (!rawDoc) {
+        return { transactionDate: "AMBIGUOUS LEGACY DATE", dateStr: "Unknown Date", timestampMs: null, isAmbiguous: true, confidence: "Low" };
+    }
+
+    const rawTxDate = rawDoc.transactionDate;
+    const rawDateStr = rawDoc.dateStr;
+    const rawDate = rawDoc.date;
+
+    const candidateStr = (rawTxDate || rawDateStr || rawDate || "").toString().trim();
+
+    // Get reliable historical created timestamp if available
+    let createdDate = null;
+    if (rawDoc.timestamp) {
+        if (typeof rawDoc.timestamp.toDate === 'function') createdDate = rawDoc.timestamp.toDate();
+        else if (rawDoc.timestamp.seconds !== undefined) createdDate = new Date(rawDoc.timestamp.seconds * 1000);
+        else if (typeof rawDoc.timestamp === 'number') createdDate = new Date(rawDoc.timestamp);
+        else if (typeof rawDoc.timestamp === 'string') createdDate = new Date(rawDoc.timestamp);
+    } else if (rawDoc.createdAt) {
+        if (typeof rawDoc.createdAt.toDate === 'function') createdDate = rawDoc.createdAt.toDate();
+        else if (rawDoc.createdAt.seconds !== undefined) createdDate = new Date(rawDoc.createdAt.seconds * 1000);
+        else if (typeof rawDoc.createdAt === 'number') createdDate = new Date(rawDoc.createdAt);
+        else if (typeof rawDoc.createdAt === 'string') createdDate = new Date(rawDoc.createdAt);
+    }
+
+    // 1. Match full explicit ISO year format YYYY-MM-DD or YYYY/MM/DD
+    const isoMatch = candidateStr.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (isoMatch) {
+        const y = parseInt(isoMatch[1], 10);
+        const m = parseInt(isoMatch[2], 10);
+        const d = parseInt(isoMatch[3], 10);
+        if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+            const formattedDate = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const timestampMs = new Date(y, m - 1, d, 12, 0, 0, 0).getTime();
+            return {
+                transactionDate: formattedDate,
+                dateStr: formattedDate,
+                timestampMs,
+                isAmbiguous: false,
+                confidence: "High"
+            };
+        }
+    }
+
+    // 2. Match full explicit year format MM/DD/YYYY or DD/MM/YYYY
+    const slashMatch = candidateStr.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (slashMatch) {
+        const n1 = parseInt(slashMatch[1], 10);
+        const n2 = parseInt(slashMatch[2], 10);
+        const y = parseInt(slashMatch[3], 10);
+        if (y >= 2000 && y <= 2100) {
+            let m = null;
+            let d = null;
+
+            if (n1 > 12 && n2 <= 12) {
+                // Must be DD/MM/YYYY
+                d = n1;
+                m = n2;
+            } else if (n2 > 12 && n1 <= 12) {
+                // Must be MM/DD/YYYY
+                m = n1;
+                d = n2;
+            } else if (n1 <= 12 && n2 <= 12) {
+                // Disambiguate MM/DD vs DD/MM using createdDate if available
+                if (createdDate && !isNaN(createdDate.getTime()) && createdDate.getFullYear() === y) {
+                    const cM = createdDate.getMonth() + 1;
+                    const cD = createdDate.getDate();
+                    if (cM === n2 && cD === n1) {
+                        // Matches DD/MM/YYYY
+                        d = n1;
+                        m = n2;
+                    } else if (cM === n1 && cD === n2) {
+                        // Matches MM/DD/YYYY
+                        m = n1;
+                        d = n2;
+                    } else {
+                        // Default to MM/DD/YYYY
+                        m = n1;
+                        d = n2;
+                    }
+                } else {
+                    // Default to US MM/DD/YYYY
+                    m = n1;
+                    d = n2;
+                }
+            }
+
+            if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                const formattedDate = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const timestampMs = new Date(y, m - 1, d, 12, 0, 0, 0).getTime();
+                return {
+                    transactionDate: formattedDate,
+                    dateStr: formattedDate,
+                    timestampMs,
+                    isAmbiguous: false,
+                    confidence: "High"
+                };
+            }
+        }
+    }
+
+    // 3. Check for year-less date string e.g. "10/1" or "09/28"
+    const yearlessMatch = candidateStr.match(/^(\d{1,2})[-/](\d{1,2})$/);
+
+    if (yearlessMatch) {
+        const num1 = parseInt(yearlessMatch[1], 10);
+        const num2 = parseInt(yearlessMatch[2], 10);
+
+        if (createdDate && !isNaN(createdDate.getTime())) {
+            const createdYear = createdDate.getFullYear();
+            const createdMonth = createdDate.getMonth() + 1;
+
+            let m = null;
+            let d = null;
+
+            if (num1 > 12) {
+                d = num1;
+                m = num2;
+            } else if (num2 > 12) {
+                m = num1;
+                d = num2;
+            } else {
+                if (createdMonth === num1) {
+                    m = num1;
+                    d = num2;
+                } else if (createdMonth === num2) {
+                    m = num2;
+                    d = num1;
+                }
+            }
+
+            if (m !== null && d !== null) {
+                const isSameMonth = (createdMonth === m);
+                const isNearMonthBoundary = Math.abs(createdMonth - m) === 1 || Math.abs(createdMonth - m) === 11;
+
+                if (isSameMonth || isNearMonthBoundary) {
+                    const formattedDate = `${createdYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const timestampMs = new Date(createdYear, m - 1, d, 12, 0, 0, 0).getTime();
+                    return {
+                        transactionDate: formattedDate,
+                        dateStr: formattedDate,
+                        timestampMs,
+                        isAmbiguous: false,
+                        confidence: "Medium (Legacy Year Recovered)"
+                    };
+                } else {
+                    return {
+                        transactionDate: "AMBIGUOUS LEGACY DATE",
+                        dateStr: candidateStr,
+                        timestampMs: createdDate.getTime(),
+                        isAmbiguous: true,
+                        confidence: "Ambiguous Legacy Conflict"
+                    };
+                }
+            } else {
+                return {
+                    transactionDate: "AMBIGUOUS LEGACY DATE",
+                    dateStr: candidateStr,
+                    timestampMs: createdDate.getTime(),
+                    isAmbiguous: true,
+                    confidence: "Ambiguous Legacy Conflict"
+                };
+            }
+        } else {
+            // DO NOT ASSIGN CURRENT SYSTEM YEAR TO YEAR-LESS STRING!
+            return {
+                transactionDate: "AMBIGUOUS LEGACY DATE",
+                dateStr: candidateStr,
+                timestampMs: null,
+                isAmbiguous: true,
+                confidence: "Ambiguous (No Year)"
+            };
+        }
+    }
+
+    // 4. Fallback to createdDate if candidateStr was missing
+    if (createdDate && !isNaN(createdDate.getTime())) {
+        const y = createdDate.getFullYear();
+        const m = createdDate.getMonth() + 1;
+        const d = createdDate.getDate();
+        const formattedDate = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        return {
+            transactionDate: formattedDate,
+            dateStr: formattedDate,
+            timestampMs: createdDate.getTime(),
+            isAmbiguous: false,
+            confidence: "Medium (Timestamp Fallback)"
+        };
+    }
+
+    return {
+        transactionDate: "AMBIGUOUS LEGACY DATE",
+        dateStr: candidateStr || "Unknown Date",
+        timestampMs: null,
+        isAmbiguous: true,
+        confidence: "Low"
+    };
+};
+
 export const normalizeLog = (rawDoc, configuredPartners = []) => {
     const labelRaw = rawDoc.label || "No Label";
     const labelLower = labelRaw.toLowerCase();
@@ -62,38 +261,11 @@ export const normalizeLog = (rawDoc, configuredPartners = []) => {
     let confidence = "Low";
     let notes = [];
 
-    // --- 1. DATE & TIMESTAMP NORMALIZATION ---
-    let timestampMs = null;
-    let dateStrStr = "Unknown Date";
-
-    if (rawDoc.timestamp) {
-        if (typeof rawDoc.timestamp.toDate === 'function') {
-            const d = rawDoc.timestamp.toDate();
-            timestampMs = d.getTime();
-            dateStrStr = d.toLocaleDateString();
-        } else if (rawDoc.timestamp.seconds !== undefined) {
-            timestampMs = rawDoc.timestamp.seconds * 1000;
-            const d = new Date(timestampMs);
-            dateStrStr = d.toLocaleDateString();
-        } else {
-            const d = new Date(rawDoc.timestamp);
-            if (!isNaN(d.getTime())) {
-                timestampMs = d.getTime();
-                dateStrStr = d.toLocaleDateString();
-            }
-        }
-    }
-
-    // Attempt to parse dateStr if timestamp is missing
-    if (!timestampMs && rawDoc.dateStr) {
-        const d = new Date(rawDoc.dateStr);
-        if (!isNaN(d.getTime())) {
-            timestampMs = d.getTime();
-            dateStrStr = d.toLocaleDateString();
-        } else {
-            dateStrStr = rawDoc.dateStr;
-        }
-    }
+    // --- 1. AUTHORITATIVE DATE NORMALIZATION ---
+    const dateRes = resolveAuthoritativeLogDate(rawDoc);
+    const timestampMs = dateRes.timestampMs;
+    const dateStrStr = dateRes.dateStr;
+    const transactionDate = dateRes.transactionDate;
 
     // --- 2. SOURCE INFERENCE ---
     if (labelLower.includes("coffee") || labelLower.includes("vendo") || labelLower.includes("powder") || labelLower.includes("cup") || labelLower.includes("water machine")) {
@@ -218,6 +390,8 @@ export const normalizeLog = (rawDoc, configuredPartners = []) => {
         id: rawDoc.id,
         timestamp: timestampMs,
         date: dateStrStr,
+        transactionDate: transactionDate,
+        isAmbiguousDate: dateRes.isAmbiguous,
         label: labelRaw,
         type: type,
         amount: amount,

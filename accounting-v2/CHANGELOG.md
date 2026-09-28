@@ -1,5 +1,19 @@
 # JGB ACCOUNTING V2 - CHANGELOG
 
+## [1.0.11] - 2026-03-30
+### Added
+- Future-date protection during transaction entry with confirmation prompt.
+- Authoritative date parsing & DD/MM/YYYY vs MM/DD/YYYY disambiguation in `normalization-service.js`.
+
+### Changed
+- `index.html`: Platform version updated to v1.0.11.
+- `transaction-service.js`: Standardized saving `transactionDate` and `dateStr` as explicit YYYY-MM-DD format.
+- `normalization-service.js`: Improved legacy date parser to prevent current-year guessing.
+
+### Fixed
+- Fixed historical date interpretation issue for legacy transactions (e.g. DD/MM/YYYY entries distorting future months).
+- Corrected record date integrity and verified 0 distortion in October 2026.
+
 ## [2023-11-20] - Expense & Partner Classification Fix
 ### Changed
 - `normalization-service.js`: Added missing `label` property to normalized objects. Improved branch exclusion logic for PisoWiFi. Added `normalizeExpenseCategory` for ALECO/DCTV mapping.
