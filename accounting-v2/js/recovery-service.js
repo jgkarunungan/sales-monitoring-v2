@@ -132,18 +132,22 @@ export const RecoveryService = {
                 status = "PAUSED";
                 allocation = 0;
             } else {
-                if (!foundActiveUnfinished) {
-                    status = "ACTIVE";
-                    foundActiveUnfinished = true;
-                } else {
-                    status = "WAITING";
-                }
-
                 if (poolAvailable > 0) {
                     allocation = Math.min(poolAvailable, remBefore);
                     poolAvailable -= allocation;
                 } else {
                     allocation = 0;
+                }
+
+                if (remBefore - allocation <= 0) {
+                    status = "FULLY RECOVERED";
+                } else {
+                    if (!foundActiveUnfinished) {
+                        status = "ACTIVE";
+                        foundActiveUnfinished = true;
+                    } else {
+                        status = "WAITING";
+                    }
                 }
             }
 
@@ -284,18 +288,22 @@ export const RecoveryService = {
                 status = "PAUSED";
                 allocation = 0;
             } else {
-                if (!foundActiveUnfinished) {
-                    status = "ACTIVE";
-                    foundActiveUnfinished = true;
-                } else {
-                    status = "WAITING";
-                }
-
                 if (poolAvailable > 0) {
                     allocation = Math.min(poolAvailable, remBefore);
                     poolAvailable -= allocation;
                 } else {
                     allocation = 0;
+                }
+
+                if (remBefore - allocation <= 0) {
+                    status = "FULLY RECOVERED";
+                } else {
+                    if (!foundActiveUnfinished) {
+                        status = "ACTIVE";
+                        foundActiveUnfinished = true;
+                    } else {
+                        status = "WAITING";
+                    }
                 }
             }
 

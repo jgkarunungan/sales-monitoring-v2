@@ -1,5 +1,30 @@
 # JGB ACCOUNTING V2 - CHANGELOG
 
+## [1.0.13] - Coffee Vendo Self-Recovery Finalization
+### Added
+- Refined Coffee Vendo `SOURCE_SELF_RECOVERY` accounting coverage engine in `recovery-service.js`.
+- Capped recovery contribution calculation (`actualRecoveryContribution = min(provisionalRecoveryPool, remainingRecoverableCost)`).
+- Full recovery completion transition: when 100% startup cost is covered, recovery contribution becomes ₱0.00 and 100% of Coffee Operating Profit flows directly to business earnings.
+- Comprehensive test suite in `settings-service.js` verifying open month provisional recovery, direct expense changes, recovery caps, mid-pool target completion, multiple target waterfalls, post-recovery 100% profit flow, and accounting invariants.
+- Updated Recovery Queue UI in `dashboard-renderer.js` with clear accounting terminology (Startup Cost, Cost Covered, Recovery Contribution, Remaining Cost to Recover, Coffee Operating Profit, Coffee Contribution to Business).
+
+### Changed
+- `recovery-service.js`: Refined target status assignment in `calculateSourceSelfRecovery` and `calculateBranchWaterfall` to handle mid-pool completion correctly.
+- `dashboard-renderer.js`: Replaced misleading terminology ("Paid Back", "Payback Progress") with standardized accounting terms ("Cost Covered", "Startup Cost Recovery Progress"). Added completion banner when target is FULLY RECOVERED.
+- `settings-service.js`: Expanded `runCoffeeSelfRecoveryTests()` to cover all required verification tests (Sections 27-35).
+
+### Tests Passed
+- Normal Open Month Test: PASS.
+- Expense Change Test: PASS.
+- Recovery Cap Test: PASS.
+- Fully Recovered Next Month Test: PASS.
+- No Targets Test: PASS.
+- Multiple Target Waterfall Test: PASS.
+- All Targets Complete Mid-Pool Test: PASS.
+- Accounting Invariants Test: PASS.
+- Negative / Zero Operating Profit Test: PASS.
+- Full Regression Test Suite: ALL PASS.
+
 ## [1.0.12] - Phase 2 Monthly Recovery Carry-Forward
 ### Added
 - Durable monthly recovery carry-forward engine in `recovery-service.js`.

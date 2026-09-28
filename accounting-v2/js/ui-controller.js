@@ -306,7 +306,33 @@ export const UIController = {
             });
         }
 
-        // 6. Draw Charts
+        // 6. Unclassified / General Overhead View Log Triggers
+        const openUnclassifiedLog = () => {
+            this.transactionLogState = {
+                period: 'All Time',
+                month: null,
+                type: 'All',
+                branch: 'Unclassified',
+                source: 'All',
+                partner: 'All',
+                search: '',
+                customStart: null,
+                customEnd: null
+            };
+            this.switchTab('transaction-log');
+        };
+
+        const btnViewUnclass = document.getElementById('btnViewUnclassifiedTx');
+        if (btnViewUnclass) {
+            btnViewUnclass.addEventListener('click', openUnclassifiedLog);
+        }
+
+        const unclassCardTrigger = document.getElementById('unclassifiedCardTrigger');
+        if (unclassCardTrigger) {
+            unclassCardTrigger.addEventListener('click', openUnclassifiedLog);
+        }
+
+        // 7. Draw Charts
         const monthlyData = AccountingService.calculateMonthlyBusinessPerformance(
             DataService.normalizedLogs || [],
             DataService.settings || {},

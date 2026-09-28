@@ -523,73 +523,113 @@ export const SettingsService = {
 
     runCoffeeSelfRecoveryTests() {
         const results = {
-            noHistoricalRecoveryTest: "FAIL", // Section 27
-            hundredPercentRecoveryTest: "FAIL", // Section 28
-            directExpenseTest: "FAIL", // Section 29
-            waterSpillTest: "FAIL", // Section 30
-            fullPaybackTest: "FAIL" // Section 31
+            normalOpenMonthTest: "FAIL", // Section 27
+            expenseChangeTest: "FAIL", // Section 28
+            recoveryCapTest: "FAIL", // Section 29
+            fullyRecoveredNextMonthTest: "FAIL", // Section 30
+            noTargetsTest: "FAIL", // Section 31
+            multipleTargetWaterfallTest: "FAIL", // Section 32
+            allTargetsCompleteMidPoolTest: "FAIL", // Section 33
+            accountingInvariantsTest: "FAIL", // Section 34
+            negativeOpProfitTest: "FAIL" // Section 35
         };
 
-        // TEST 1: Required Test - No Historical Recovery (Section 27)
-        const mockLogs1 = [
-            { type: "income", source: "Coffee Vendo", amount: 4000 }
-        ];
-        const mockAssets1 = [
-            { id: "c1", name: "Coffee Machine", cost: 20000, openingRecovered: 0, recoveryPercent: 0.50, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY" }
-        ];
-        const res1 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", mockLogs1, mockAssets1);
-        if (res1.totalOpeningRecovered === 0 &&
-            res1.allocatedTotal === 2000 &&
-            res1.totalRecoveredToDate === 2000 &&
-            res1.totalRemaining === 18000) {
-            results.noHistoricalRecoveryTest = "PASS";
-        }
-
-        // TEST 2: Required Test - 100% Self-Recovery (Section 28)
-        const mockAssets2 = [
-            { id: "c1", name: "Coffee Machine", cost: 20000, openingRecovered: 0, recoveryPercent: 1.00, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY" }
-        ];
-        const res2 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", mockLogs1, mockAssets2);
-        if (res2.allocatedTotal === 4000 && res2.totalRemaining === 16000) {
-            results.hundredPercentRecoveryTest = "PASS";
-        }
-
-        // TEST 3: Required Test - Direct Expense (Section 29)
-        const mockLogs3 = [
-            { type: "income", source: "Coffee Vendo", amount: 5000 },
+        // 1. Normal Open Month Test (Section 27)
+        const logs1 = [
+            { type: "income", source: "Coffee Vendo", amount: 4000 },
             { type: "expense", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 2000 }
         ];
-        const res3 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", mockLogs3, mockAssets1);
-        if (res3.operatingProfit === 3000 && res3.allocatedTotal === 1500) {
-            results.directExpenseTest = "PASS";
+        const assets1 = [{ id: "c1", name: "Coffee Machine", cost: 20000, openingRecovered: 10000, recoveryPercent: 0.50, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY" }];
+        const res1 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", logs1, assets1);
+        if (res1.operatingProfit === 2000 && res1.allocatedTotal === 1000 && res1.surplusAfterRecovery === 1000 && res1.totalRemaining === 9000) {
+            results.normalOpenMonthTest = "PASS";
         }
 
-        // TEST 4: Required Test - Water Spill (Section 30)
-        const mockLogs4 = [
-            { type: "income", source: "Coffee Vendo", amount: 4000 }
+        // 2. Expense Change Test (Section 28)
+        const logs2a = [
+            { type: "income", source: "Coffee Vendo", amount: 4000 },
+            { type: "expense", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 1000 }
         ];
-        const mockAssets4 = [
-            { id: "t1", name: "Water Container", cost: 180, openingRecovered: 0, priority: 1, recoveryPercent: 0.50, source: "Coffee Vendo" },
-            { id: "t2", name: "Coffee Machine", cost: 20000, openingRecovered: 0, priority: 2, recoveryPercent: 0.50, source: "Coffee Vendo" },
-            { id: "t3", name: "Coffee Metal Case", cost: 8000, openingRecovered: 0, priority: 3, recoveryPercent: 0.50, source: "Coffee Vendo" }
-        ];
-        const res4 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", mockLogs4, mockAssets4);
-        if (res4.allocations[0]?.currentPeriodAllocation === 180 && res4.allocations[0]?.status === "FULLY RECOVERED" &&
-            res4.allocations[1]?.currentPeriodAllocation === 1820 && res4.allocations[1]?.status === "ACTIVE" &&
-            res4.allocations[2]?.currentPeriodAllocation === 0 && res4.allocations[2]?.status === "WAITING") {
-            results.waterSpillTest = "PASS";
+        const res2a = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", logs2a, assets1);
+        const logs2b = [...logs2a, { type: "expense", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 500 }];
+        const res2b = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", logs2b, assets1);
+        if (res2a.operatingProfit === 3000 && res2a.allocatedTotal === 1500 && res2b.operatingProfit === 2500 && res2b.allocatedTotal === 1250) {
+            results.expenseChangeTest = "PASS";
         }
 
-        // TEST 5: Required Test - Full Payback (Section 31)
-        const mockLogs5 = [
-            { type: "income", source: "Coffee Vendo", amount: 3000 }
+        // 3. Recovery Cap Test (Section 29)
+        const logs3 = [
+            { type: "income", source: "Coffee Vendo", amount: 5000 },
+            { type: "expense", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 1000 }
         ];
-        const mockAssets5 = [
-            { id: "t1", name: "Small Part", cost: 1000, openingRecovered: 0, priority: 1, recoveryPercent: 1.00, source: "Coffee Vendo" }
+        const assets3 = [{ id: "c1", name: "Coffee Machine", cost: 20000, openingRecovered: 19500, recoveryPercent: 0.50, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY" }];
+        const res3 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", logs3, assets3);
+        if (res3.operatingProfit === 4000 && res3.recoveryPool === 2000 && res3.allocatedTotal === 500 && res3.surplusAfterRecovery === 3500 && res3.totalRemaining === 0) {
+            results.recoveryCapTest = "PASS";
+        }
+
+        // 4. Fully Recovered Next Month Test (Section 30)
+        const assets4 = [{ id: "c1", name: "Coffee Machine", cost: 20000, openingRecovered: 20000, recoveryPercent: 0.50, branch: "Cabagñan", source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY" }];
+        const logs4 = [
+            { type: "income", source: "Coffee Vendo", amount: 7000 },
+            { type: "expense", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 2000 }
         ];
-        const res5 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", mockLogs5, mockAssets5);
-        if (res5.allocatedTotal === 1000 && res5.totalRemaining === 0 && res5.surplusAfterRecovery === 2000) {
-            results.fullPaybackTest = "PASS";
+        const res4 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", logs4, assets4);
+        if (res4.operatingProfit === 5000 && res4.allocatedTotal === 0 && res4.surplusAfterRecovery === 5000 && res4.totalRemaining === 0) {
+            results.fullyRecoveredNextMonthTest = "PASS";
+        }
+
+        // 5. No Targets Test (Section 31)
+        const res5 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", logs4, []);
+        if (res5.operatingProfit === 5000 && res5.allocatedTotal === 0 && res5.surplusAfterRecovery === 5000 && res5.totalRemaining === 0) {
+            results.noTargetsTest = "PASS";
+        }
+
+        // 6. Multiple Target Waterfall Test (Section 32)
+        const assets6 = [
+            { id: "cA", name: "Target A", cost: 1000, openingRecovered: 400, recoveryPercent: 0.50, source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 1 },
+            { id: "cB", name: "Target B", cost: 5000, openingRecovered: 2000, recoveryPercent: 0.50, source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 2 }
+        ];
+        const logs6 = [
+            { type: "income", source: "Coffee Vendo", amount: 5000 },
+            { type: "expense", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 1000 }
+        ];
+        const res6 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", logs6, assets6);
+        if (res6.allocations[0]?.currentPeriodAllocation === 600 && res6.allocations[0]?.status === "FULLY RECOVERED" &&
+            res6.allocations[1]?.currentPeriodAllocation === 1400 && res6.allocations[1]?.status === "ACTIVE" &&
+            res6.allocatedTotal === 2000 && res6.surplusAfterRecovery === 2000) {
+            results.multipleTargetWaterfallTest = "PASS";
+        }
+
+        // 7. All Targets Complete Mid-Pool Test (Section 33)
+        const assets7 = [
+            { id: "cA", name: "Target A", cost: 1000, openingRecovered: 600, recoveryPercent: 0.50, source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 1 },
+            { id: "cB", name: "Target B", cost: 1000, openingRecovered: 500, recoveryPercent: 0.50, source: "Coffee Vendo", recoveryFundingMode: "SOURCE_SELF_RECOVERY", priority: 2 }
+        ];
+        const logs7 = [
+            { type: "income", source: "Coffee Vendo", amount: 6000 },
+            { type: "expense", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 1000 }
+        ];
+        const res7 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", logs7, assets7);
+        if (res7.allocatedTotal === 900 && res7.surplusAfterRecovery === 4100 && res7.totalRemaining === 0) {
+            results.allTargetsCompleteMidPoolTest = "PASS";
+        }
+
+        // 8. Accounting Invariants Test (Section 34)
+        const invariant1 = res1.operatingProfit === (res1.allocatedTotal + res1.surplusAfterRecovery);
+        const invariant2 = res4.allocatedTotal === 0 && res4.operatingProfit === res4.surplusAfterRecovery;
+        if (invariant1 && invariant2) {
+            results.accountingInvariantsTest = "PASS";
+        }
+
+        // 9. Negative / Zero Operating Profit Test (Section 35)
+        const logs9 = [
+            { type: "income", source: "Coffee Vendo", amount: 2000 },
+            { type: "expense", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 2500 }
+        ];
+        const res9 = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", logs9, assets1);
+        if (res9.operatingProfit === -500 && res9.allocatedTotal === 0 && res9.surplusAfterRecovery === -500) {
+            results.negativeOpProfitTest = "PASS";
         }
 
         return results;

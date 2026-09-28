@@ -298,3 +298,29 @@ Once a function or logic path is marked **PROTECTED**, it must not be refactored
 *   **Status:** PASS
 *   **Protected:** YES
 
+## 15. COFFEE VENDO STARTUP COST RECOVERY INVARIANTS
+### Coffee Recovery as Accounting Measurement
+*   **Module:** `recovery-service.js` / `accounting-service.js`
+*   **Rule:** Coffee recovery is strictly an accounting measurement of startup cost coverage, NOT cash payment or cash movement. No cash ledger entries are created in `jgs_logs`.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Current Month Provisional & Closed Month Locking
+*   **Module:** `recovery-service.js`
+*   **Rule:** Current month Coffee Recovery Contribution is provisional (`positive Coffee Operating Profit * Coffee Recovery Rate`, subject to remaining cost cap). Closed months remain locked in `recoveryLedger`.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Recovery Cap & Remaining Cost Limit
+*   **Module:** `recovery-service.js`
+*   **Rule:** `actualRecoveryContribution = min(provisionalRecoveryPool, remainingRecoverableCost)`. Recovery can never exceed original recoverable cost. Unused recovery pool returns to normal business earnings.
+*   **Status:** PASS
+*   **Protected:** YES
+
+### Full Recovery Completion Policy
+*   **Module:** `recovery-service.js` / `dashboard-renderer.js`
+*   **Rule:** When all active `SOURCE_SELF_RECOVERY` targets for a Coffee source reach `remainingCost == 0`, target status is `FULLY RECOVERED`. Recovery Contribution becomes ₱0.00, and 100% of Coffee Operating Profit flows directly into business earnings.
+*   **Status:** PASS
+*   **Protected:** YES
+
+

@@ -3,6 +3,8 @@ import {
     logCol,
     addDoc,
     updateDoc,
+    deleteDoc,
+    getDoc,
     doc,
     serverTimestamp
 } from './firebase-config.js';
@@ -130,5 +132,17 @@ export const TransactionService = {
         if (payload.transactionDate) {
             await this.checkBackdatedTransactionPolicy(payload.transactionDate);
         }
+    },
+
+    async deleteTransaction(id) {
+        const docRef = doc(db, "jgs_logs", id);
+        const snapshot = await getDoc(docRef);
+        if (!snapshot.exists()) {
+            return { exists: false };
+        }
+        const data = snapshot.data();
+        await deleteDoc(docRef);
+        await SettingsService.logAudit("transaction_deleted", "transaction", id, data, null, "Owner-approved removal of unknown legacy transaction");
+        return { exists: true, data };
     }
 };

@@ -1008,6 +1008,9 @@ export const AccountingService = {
             irayaEarnings: iraya.owner.finalEarnings,
             irayaStatus: iraya.owner.finalEarnings >= 0 ? "SURPLUS" : "DEFICIT",
             remotePartnersOwnerProfitTotal,
+            unclassifiedOwnerRevenue,
+            unclassifiedOwnerExpenses,
+            unclassifiedNetAdjustment: unclassifiedOwnerRevenue - unclassifiedOwnerExpenses,
             totalGrossRevenue: Object.values(cabagnan.sources).reduce((acc, curr) => acc + curr.grossRevenue, 0) +
                                iraya.partner.pisonetGross + iraya.owner.pisowifiRevenue +
                                Object.values(partnerPisoWifiBreakdown).reduce((acc, curr) => acc + curr.grossRevenue, 0) +

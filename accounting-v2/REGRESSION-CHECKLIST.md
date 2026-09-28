@@ -44,3 +44,16 @@ Perform all tests before marking any new task complete.
 - [ ] Admin explicit recalculation and re-locking works cleanly
 - [ ] No double counting of current month provisional in confirmed recovered
 - [ ] Baseline `openingRecovered` preserved and never overwritten
+
+## COFFEE VENDO STARTUP RECOVERY
+- [ ] Recovery treated as accounting coverage measurement, NOT cash payment
+- [ ] Provisional recovery adjusts dynamically with current month income/expenses
+- [ ] Recovery capped at remaining recoverable cost (no over-recovery beyond cost)
+- [ ] Target status reaches `FULLY RECOVERED` when cost is 100% covered
+- [ ] After full recovery, future recovery contribution = ₱0.00
+- [ ] After full recovery, 100% of Coffee Operating Profit flows to business earnings
+- [ ] Multiple targets waterfall correctly in source self-recovery queue
+- [ ] Mid-pool completion of all targets leaves surplus in business earnings
+- [ ] Negative or zero Coffee Operating Profit generates ₱0.00 recovery contribution
+- [ ] Coffee self-recovery deducted only at source level (no double deduction at branch level)
+

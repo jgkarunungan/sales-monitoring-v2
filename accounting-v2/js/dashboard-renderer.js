@@ -37,6 +37,9 @@ export const DashboardRenderer = {
         const latestMonth = monthlyData.length > 0 ? monthlyData[monthlyData.length - 1] : null;
         const prevMonth = monthlyData.length > 1 ? monthlyData[monthlyData.length - 2] : null;
 
+        const hasUnclassified = (c.unclassifiedOwnerRevenue !== undefined && (c.unclassifiedOwnerRevenue !== 0 || c.unclassifiedOwnerExpenses !== 0));
+        const unclassifiedCount = c.unclassifiedItemsList ? c.unclassifiedItemsList.length : 0;
+
         return `
             <div class="space-y-6">
                 <!-- Suite Verification Badges -->
@@ -53,11 +56,83 @@ export const DashboardRenderer = {
                 </div>
 
                 <!-- Period Status Cards -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
                     ${this.renderMetricCard("Cabagñan Status", money(c.cabagnanEarnings), c.cabagnanEarnings >= 0 ? "success" : "danger", `Operating result: ${c.cabagnanStatus}`, true)}
                     ${this.renderMetricCard("Iraya Status", money(c.irayaEarnings), c.irayaEarnings >= 0 ? "success" : "danger", `Operating result: ${c.irayaStatus}`, true)}
+                    ${this.renderMetricCard("Partner PisoWiFi", money(c.remotePartnersOwnerProfitTotal), c.remotePartnersOwnerProfitTotal >= 0 ? "success" : "danger", "Owner share of remote locations", true)}
+                    ${hasUnclassified ? this.renderMetricCard("Unclassified Overhead", money(c.unclassifiedNetAdjustment), c.unclassifiedNetAdjustment >= 0 ? "success" : "danger", `${unclassifiedCount} unclassified item${unclassifiedCount === 1 ? '' : 's'}`, true) : ''}
                     ${this.renderMetricCard("Final Business Earnings", money(c.finalBusinessEarnings), c.finalBusinessEarnings >= 0 ? "success" : "danger", "Unified post-recovery owner revenue", true)}
                     ${this.renderMetricCard("Total Savings (Period)", money(c.totalSavings), "success", "Cumulative branches reserves", true)}
+                </div>
+
+                <!-- FINAL BUSINESS EARNINGS RECONCILIATION PANEL -->
+                <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-3 gap-2">
+                        <div>
+                            <h3 class="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                                <span>🧮</span> FINAL BUSINESS EARNINGS RECONCILIATION
+                            </h3>
+                            <p class="text-xs text-slate-400 font-medium">Exact mathematical breakdown of unified post-recovery owner revenue for ${DataService.currentPeriod}</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs font-black text-slate-400 uppercase">Final Total: </span>
+                            <span class="text-lg font-black text-slate-900">${money(c.finalBusinessEarnings)}</span>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-${hasUnclassified ? '4' : '3'} gap-4 text-xs font-medium">
+                        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <div class="text-[9px] font-black text-slate-400 uppercase">Cabagñan Branch</div>
+                            <div class="text-lg font-black text-slate-800 mt-0.5">${money(c.cabagnanEarnings)}</div>
+                            <div class="text-[10px] text-slate-400 font-medium mt-0.5">Post-recovery & savings</div>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <div class="text-[9px] font-black text-slate-400 uppercase">Iraya Joint Branch</div>
+                            <div class="text-lg font-black text-slate-800 mt-0.5">${money(c.irayaEarnings)}</div>
+                            <div class="text-[10px] text-slate-400 font-medium mt-0.5">Owner share post-recovery</div>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <div class="text-[9px] font-black text-slate-400 uppercase">Partner PisoWiFi Network</div>
+                            <div class="text-lg font-black text-slate-800 mt-0.5">${money(c.remotePartnersOwnerProfitTotal)}</div>
+                            <div class="text-[10px] text-slate-400 font-medium mt-0.5">Owner operating profit</div>
+                        </div>
+
+                        ${hasUnclassified ? `
+                            <div class="p-4 bg-amber-50/60 rounded-2xl border border-amber-200 cursor-pointer hover:border-amber-400 transition-all group" id="unclassifiedCardTrigger">
+                                <div class="flex justify-between items-start">
+                                    <div class="text-[9px] font-black text-amber-800 uppercase">Unclassified / General Overhead</div>
+                                    <span class="text-[8px] font-black bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded uppercase">Notice</span>
+                                </div>
+                                <div class="text-lg font-black ${c.unclassifiedNetAdjustment >= 0 ? 'text-emerald-700' : 'text-rose-700'} mt-0.5">${money(c.unclassifiedNetAdjustment)}</div>
+                                <div class="text-[10px] text-amber-800 font-bold mt-1 flex justify-between items-center">
+                                    <span>${unclassifiedCount} transaction${unclassifiedCount === 1 ? '' : 's'}</span>
+                                    <span class="underline font-black group-hover:text-amber-950">View Log →</span>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    ${hasUnclassified ? `
+                        <div class="bg-amber-50/80 p-4 rounded-2xl border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900">
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-lg">⚠️</span>
+                                <div>
+                                    <div class="font-black text-xs uppercase tracking-wider text-amber-900">Classification Notice (${unclassifiedCount} transaction${unclassifiedCount === 1 ? '' : 's'})</div>
+                                    <p class="font-medium text-[11px] text-amber-800 mt-0.5">Some transactions are not assigned to a branch/source. Net adjustment: ${money(c.unclassifiedNetAdjustment)} (Revenue: ${money(c.unclassifiedOwnerRevenue)}, Expenses: ${money(c.unclassifiedOwnerExpenses)}).</p>
+                                </div>
+                            </div>
+                            <button id="btnViewUnclassifiedTx" class="px-4 py-2 bg-amber-800 hover:bg-amber-900 text-white font-black text-xs uppercase rounded-xl transition-all shrink-0 shadow">
+                                View Unclassified Transactions
+                            </button>
+                        </div>
+                    ` : ''}
+
+                    <div class="bg-slate-900 text-slate-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs font-mono font-bold">
+                        <span>FORMULA: ${money(c.cabagnanEarnings)} (Cabagñan) + ${money(c.irayaEarnings)} (Iraya) + ${money(c.remotePartnersOwnerProfitTotal)} (Partner PisoWiFi)${c.unclassifiedOwnerRevenue ? ' + ' + money(c.unclassifiedOwnerRevenue) + ' (Unclass. Rev)' : ''}${c.unclassifiedOwnerExpenses ? ' - ' + money(c.unclassifiedOwnerExpenses) + ' (Unclass. Exp)' : ''}</span>
+                        <span class="text-emerald-400 font-black text-sm">= ${money(c.finalBusinessEarnings)}</span>
+                    </div>
                 </div>
 
                 <!-- ALL-TIME BUSINESS SUMMARY SECTION -->
@@ -1248,6 +1323,7 @@ export const DashboardRenderer = {
                                 <select id="txLogBranch" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
                                     <option value="All" ${currentState.branch === 'All' ? 'selected' : ''}>All Branches</option>
                                     ${dynamicBranches.map(b => `<option value="${b}" ${currentState.branch === b ? 'selected' : ''}>${b}</option>`).join('')}
+                                    <option value="Unclassified" ${currentState.branch === 'Unclassified' ? 'selected' : ''}>Unclassified</option>
                                 </select>
                             </div>
 
@@ -1606,47 +1682,47 @@ export const DashboardRenderer = {
                             <div class="flex justify-between items-center border-b border-amber-200 pb-4">
                                 <div>
                                     <div class="flex items-center gap-2">
-                                        <span class="text-xl">⚙️</span>
-                                        <h3 class="font-black text-base uppercase tracking-wider text-slate-800">${safeText(srcKey)} Self-Recovery</h3>
-                                        <span class="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black rounded-full uppercase">Source-Specific</span>
+                                        <span class="text-xl">☕</span>
+                                        <h3 class="font-black text-base uppercase tracking-wider text-slate-800">${safeText(srcKey)} Startup Cost Recovery</h3>
+                                        <span class="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black rounded-full uppercase">Source Self-Recovery</span>
                                     </div>
-                                    <p class="text-xs text-slate-500 font-medium mt-0.5">Opening costs recovered strictly from ${safeText(srcKey)} operating profit.</p>
+                                    <p class="text-xs text-slate-500 font-medium mt-0.5">Startup cost coverage measured strictly from ${safeText(srcKey)} operating performance (no cash transfer).</p>
                                 </div>
                                 ${srcRes && srcRes.totalRemaining === 0 ? `
-                                    <span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-black rounded-full uppercase tracking-wider">✅ FULLY PAID BACK</span>
+                                    <span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-black rounded-full uppercase tracking-wider">✅ FULLY RECOVERED</span>
                                 ` : `
-                                    <span class="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-black rounded-full uppercase tracking-wider">🔄 RECOVERING INVESTMENT</span>
+                                    <span class="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-black rounded-full uppercase tracking-wider">🔄 RECOVERING STARTUP COST</span>
                                 `}
                             </div>
 
                             <!-- Performance Cards Grid -->
                             <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 text-xs">
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Gross Sales</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Gross Coffee Revenue</div>
                                     <div class="text-sm font-black text-slate-800 mt-0.5">${money(srcRes ? srcRes.grossRevenue : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Direct Expenses</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Direct Coffee Expenses</div>
                                     <div class="text-sm font-black text-red-600 mt-0.5">${money(srcRes ? srcRes.directExpenses : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Operating Profit</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Coffee Operating Profit</div>
                                     <div class="text-sm font-black text-emerald-700 mt-0.5">${money(srcRes ? srcRes.operatingProfit : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Self-Recovery Rate</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Recovery Rate</div>
                                     <div class="text-sm font-black text-amber-600 mt-0.5">${srcRes ? srcRes.recoveryRate : 50}%</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Available Pool</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Calculated Recovery Pool</div>
                                     <div class="text-sm font-black text-slate-800 mt-0.5">${money(srcRes ? srcRes.recoveryPool : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Current Month Provisional</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Recovery Contribution</div>
                                     <div class="text-sm font-black text-emerald-600 mt-0.5">${money(srcRes ? srcRes.allocatedTotal : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Branch Contribution</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Coffee Contribution</div>
                                     <div class="text-sm font-black text-blue-700 mt-0.5">${money(srcRes ? srcRes.surplusAfterRecovery : 0)}</div>
                                 </div>
                             </div>
@@ -1654,7 +1730,7 @@ export const DashboardRenderer = {
                             <!-- Opening Costs Progress Bar -->
                             <div class="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
                                 <div class="flex justify-between items-center text-xs font-bold">
-                                    <span class="text-slate-600 uppercase text-[10px] tracking-wider">Overall ${safeText(srcKey)} Payback Progress</span>
+                                    <span class="text-slate-600 uppercase text-[10px] tracking-wider">${safeText(srcKey)} Startup Cost Coverage Progress</span>
                                     <span class="font-mono text-slate-800">${money(srcRes ? srcRes.totalRecoveredToDate : 0)} / ${money(srcRes ? srcRes.totalOriginalCost : 0)} (${srcRes ? srcRes.progressPercent.toFixed(1) : 0}%)</span>
                                 </div>
                                 <div class="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
@@ -1662,9 +1738,15 @@ export const DashboardRenderer = {
                                 </div>
                                 <div class="flex justify-between text-[10px] font-bold text-slate-500 font-mono pt-1">
                                     <span>Recovered Through Closed Months: ${money(srcRes ? srcRes.totalConfirmedRecovered : 0)}</span>
-                                    <span>Current Month Provisional: +${money(srcRes ? srcRes.totalCurrentProvisional : 0)}</span>
-                                    <span class="text-slate-800 font-black">Projected Remaining Balance: ${money(srcRes ? srcRes.totalRemaining : 0)}</span>
+                                    <span>Current Month Provisional Contribution: +${money(srcRes ? srcRes.totalCurrentProvisional : 0)}</span>
+                                    <span class="text-slate-800 font-black">Remaining Cost to Recover: ${money(srcRes ? srcRes.totalRemaining : 0)}</span>
                                 </div>
+                                ${srcRes && srcRes.totalRemaining === 0 ? `
+                                    <div class="text-xs font-bold text-emerald-800 bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-center mt-2 flex items-center justify-center gap-2">
+                                        <span>🎉</span>
+                                        <span><strong>FULLY RECOVERED:</strong> ${safeText(srcKey)} Operating Profit now contributes 100% (${money(srcRes.operatingProfit)}) to business earnings.</span>
+                                    </div>
+                                ` : ''}
                             </div>
 
                             <!-- Targets Queue Table -->
@@ -1676,9 +1758,9 @@ export const DashboardRenderer = {
                                             <th class="p-3">Target Asset</th>
                                             <th class="p-3">Original Cost</th>
                                             <th class="p-3">Recovered Through Closed Months</th>
-                                            <th class="p-3">Current Month Provisional</th>
-                                            <th class="p-3">Projected Total Recovered</th>
-                                            <th class="p-3">Projected Remaining Balance</th>
+                                            <th class="p-3">Current Month Provisional Contribution</th>
+                                            <th class="p-3">Projected Cost Covered</th>
+                                            <th class="p-3">Remaining Cost to Recover</th>
                                             <th class="p-3 text-center">Status</th>
                                             ${isAdmin ? `<th class="p-3 text-center">Actions</th>` : ''}
                                         </tr>
@@ -1745,9 +1827,9 @@ export const DashboardRenderer = {
                                     <th class="p-3">Target Asset</th>
                                     <th class="p-3">Original Cost</th>
                                     <th class="p-3">Recovered Through Closed Months</th>
-                                    <th class="p-3">Current Month Provisional</th>
-                                    <th class="p-3">Projected Total Recovered</th>
-                                    <th class="p-3">Projected Remaining Balance</th>
+                                    <th class="p-3">Current Month Provisional Contribution</th>
+                                    <th class="p-3">Projected Cost Covered</th>
+                                    <th class="p-3">Remaining Cost to Recover</th>
                                     <th class="p-3 text-center">Status</th>
                                     ${isAdmin ? `<th class="p-3 text-center">Actions</th>` : ''}
                                 </tr>
@@ -1812,9 +1894,9 @@ export const DashboardRenderer = {
                                     <th class="p-3">Target Asset</th>
                                     <th class="p-3">Original Cost</th>
                                     <th class="p-3">Recovered Through Closed Months</th>
-                                    <th class="p-3">Current Month Provisional</th>
-                                    <th class="p-3">Projected Total Recovered</th>
-                                    <th class="p-3">Projected Remaining Balance</th>
+                                    <th class="p-3">Current Month Provisional Contribution</th>
+                                    <th class="p-3">Projected Cost Covered</th>
+                                    <th class="p-3">Remaining Cost to Recover</th>
                                     <th class="p-3 text-center">Status</th>
                                     ${isAdmin ? `<th class="p-3 text-center">Actions</th>` : ''}
                                 </tr>
