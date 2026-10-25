@@ -537,7 +537,7 @@ export const AccountingService = {
             let key = null;
             if (l.sourceId && instanceMap[l.sourceId]) {
                 key = l.sourceId;
-            } else if (branch === "Partner PisoWiFi" || (sourceName === "PisoWiFi" && !OWNER_OPERATED_BRANCHES.some(b => location.toLowerCase().includes(b.toLowerCase())))) {
+            } else if (!OWNER_OPERATED_BRANCHES.includes(branch) && (branch === "Partner PisoWiFi" || (sourceName === "PisoWiFi" && !OWNER_OPERATED_BRANCHES.some(b => location.toLowerCase().includes(b.toLowerCase()))))) {
                 key = `Partner PisoWiFi__PisoWiFi__${location}`;
             } else {
                 key = `${branch}__${sourceName}__${location}`;
@@ -897,6 +897,8 @@ export const AccountingService = {
         });
 
         (filteredLogs || []).forEach(l => {
+            if (OWNER_OPERATED_BRANCHES.includes(l.branch)) return;
+
             const isPisoWifiSource = l.source === "PisoWiFi" || (l.label && l.label.toLowerCase().includes("pisowifi")) || (l.label && l.label.toLowerCase().includes("piso wifi"));
             const isPartnerBranch = l.branch === "Partner PisoWiFi" || isPisoWifiSource;
 
@@ -904,8 +906,10 @@ export const AccountingService = {
                 const partnerName = l.partnerName || l.partner || l.label;
                 if (!partnerName) return;
 
-                const lowerPartner = partnerName.toLowerCase();
+                const lowerPartner = partnerName.toLowerCase().trim();
                 if (OWNER_OPERATED_BRANCHES.some(b => lowerPartner.includes(b.toLowerCase()))) return;
+                const genericLabels = ["pisowifi collection", "pisowifi", "piso wifi", "pisowifi income", "collection", "unclassified"];
+                if (genericLabels.includes(lowerPartner)) return;
 
                 if (!partnerGroups[partnerName]) {
                     const matched = (configuredPartners || []).find(cp => cp.name && cp.name.toLowerCase() === lowerPartner);
@@ -1727,8 +1731,8 @@ export const AccountingService = {
 
         // Required Paused Test (Section 24)
         const pausedAssets = [
-            { id: "rec_coffee_machine", name: "Coffee Vendo Machine", cost: 20000, recoveryPercent: 0.50, branch: "Cabagñan", paused: true },
-            { id: "rec_metal_case", name: "Coffee Metal Case", cost: 8000, recoveryPercent: 0.50, branch: "Cabagñan", paused: false }
+            { id: "rec_coffee_machine", name: "Coffee Vendo Machine", cost: 20000, recoveryPercent: 0.50, branch: "Cabagñan", paused: true, recoveryFundingMode: "BRANCH_RECOVERY" },
+            { id: "rec_metal_case", name: "Coffee Metal Case", cost: 8000, recoveryPercent: 0.50, branch: "Cabagñan", paused: false, recoveryFundingMode: "BRANCH_RECOVERY" }
         ];
         const t3 = RecoveryService.calculateBranchWaterfall("Cabagñan", 10000, pausedAssets, false);
         if (t3.allocations[0]?.status === "PAUSED" && t3.allocations[1]?.status === "ACTIVE") {
@@ -1761,15 +1765,16 @@ export const AccountingService = {
         tests.textSearchCombinedFilter = (r7.length === 1 && r7[0].id === "2") ? "PASS" : "FAIL";
         tests.textSearchClearSearch = (r8.length === 3) ? "PASS" : "FAIL";
 
-        // Monthly Business Performance Tests
+        // Monthly Business Performance Tests (Use recent dates for rolling 12 months)
+        const cYr = new Date().getFullYear();
         const mockMonthlyLogs = [
-            { id: "m1", transactionDate: "2025-10-10", type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 10000, ownerShare: 1.0 },
-            { id: "m2", transactionDate: "2025-10-12", type: "expense", branch: "Cabagñan", source: "Coffee Vendo", amount: 3000, ownerShare: 1.0 },
-            { id: "m3", transactionDate: "2025-11-05", type: "income", branch: "Iraya", source: "Pisonet", amount: 8000, ownerShare: 0.50 }
+            { id: "m1", transactionDate: `${cYr}-02-10`, type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 10000, ownerShare: 1.0 },
+            { id: "m2", transactionDate: `${cYr}-02-12`, type: "expense", branch: "Cabagñan", source: "Coffee Vendo", amount: 3000, ownerShare: 1.0 },
+            { id: "m3", transactionDate: `${cYr}-03-05`, type: "income", branch: "Iraya", source: "Pisonet", amount: 8000, ownerShare: 0.50 }
         ];
         const monthlyPerf = this.calculateMonthlyBusinessPerformance(mockMonthlyLogs, {}, '12 Months');
-        const octMonth = monthlyPerf.find(m => m.monthKey === "2025-10");
-        const novMonth = monthlyPerf.find(m => m.monthKey === "2025-11");
+        const octMonth = monthlyPerf.find(m => m.monthKey === `${cYr}-02`);
+        const novMonth = monthlyPerf.find(m => m.monthKey === `${cYr}-03`);
 
         tests.monthlyConservationTest = (octMonth && (octMonth.ownerRevenue - octMonth.operatingCosts === octMonth.operatingProfit) && octMonth.operatingProfit === 7000) ? "PASS" : "FAIL";
         tests.monthlyHistoricalShareTest = (novMonth && novMonth.ownerRevenue === 4000) ? "PASS" : "FAIL";
@@ -1782,17 +1787,17 @@ export const AccountingService = {
 
         // Monthly Source Performance Verification Tests
         const mockSourceLogs = [
-            { id: "s1", transactionDate: "2025-10-10", type: "income", branch: "Cabagñan", source: "Pisonet", amount: 10000, ownerShare: 1.0 },
-            { id: "s2", transactionDate: "2025-10-10", type: "income", branch: "Iraya", source: "Pisonet", amount: 6000, ownerShare: 0.50 }, // 3000 owner share
-            { id: "s3", transactionDate: "2025-10-12", type: "expense", branch: "Cabagñan", source: "Pisonet", expenseScope: "Source Direct Expense", amount: 2000, ownerShare: 1.0 },
-            { id: "s4", transactionDate: "2025-10-15", type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 12000, ownerShare: 1.0 },
-            { id: "s5", transactionDate: "2025-10-16", type: "expense", branch: "Cabagñan", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 4000, ownerShare: 1.0 },
-            { id: "s6", transactionDate: "2025-10-18", type: "income", branch: "Cabagñan", source: "Printing / Photocopy", amount: 5000, ownerShare: 1.0 },
-            { id: "s7", transactionDate: "2025-10-19", type: "expense", branch: "Cabagñan", source: "Printing / Photocopy", expenseScope: "Source Direct Expense", amount: 1000, ownerShare: 1.0 }
+            { id: "s1", transactionDate: `${cYr}-10-10`, type: "income", branch: "Cabagñan", source: "Pisonet", amount: 10000, ownerShare: 1.0 },
+            { id: "s2", transactionDate: `${cYr}-10-10`, type: "income", branch: "Iraya", source: "Pisonet", amount: 6000, ownerShare: 0.50 }, // 3000 owner share
+            { id: "s3", transactionDate: `${cYr}-10-12`, type: "expense", branch: "Cabagñan", source: "Pisonet", expenseScope: "Source Direct Expense", amount: 2000, ownerShare: 1.0 },
+            { id: "s4", transactionDate: `${cYr}-10-15`, type: "income", branch: "Cabagñan", source: "Coffee Vendo", amount: 12000, ownerShare: 1.0 },
+            { id: "s5", transactionDate: `${cYr}-10-16`, type: "expense", branch: "Cabagñan", source: "Coffee Vendo", expenseScope: "Source Direct Expense", amount: 4000, ownerShare: 1.0 },
+            { id: "s6", transactionDate: `${cYr}-10-18`, type: "income", branch: "Cabagñan", source: "Printing / Photocopy", amount: 5000, ownerShare: 1.0 },
+            { id: "s7", transactionDate: `${cYr}-10-19`, type: "expense", branch: "Cabagñan", source: "Printing / Photocopy", expenseScope: "Source Direct Expense", amount: 1000, ownerShare: 1.0 }
         ];
 
         const srcPerf = this.calculateMonthlySourcePerformance(mockSourceLogs, {}, '12 Months');
-        const octSrcMonth = srcPerf.months.find(m => m.monthKey === "2025-10");
+        const octSrcMonth = srcPerf.months.find(m => m.monthKey === `${cYr}-10`);
 
         if (octSrcMonth) {
             const pisonetObj = octSrcMonth.byType["Pisonet"];
@@ -1841,6 +1846,15 @@ export const AccountingService = {
         tests.leapYearFeb2028Test = isFeb29 ? "PASS" : "FAIL";
         tests.customRangeInclusiveTest = (resValidCustom.mode === 'range' && resValidCustom.error === null) ? "PASS" : "FAIL";
         tests.invalidCustomRangeValidationTest = (resInvalidCustom.mode === 'invalid' && resInvalidCustom.error !== null) ? "PASS" : "FAIL";
+
+        // Branch-owned PisoWiFi Exclusion and Partner PisoWiFi Protection Tests
+        const mockBranchOwnedWifiLog = { id: "bo1", type: "income", branch: "Iraya", source: "PisoWiFi", label: "PisoWiFi Collection", amount: 1452, ownerShare: 1.0, partnerShare: 0.0 };
+        const mockGenuinePartnerLog = { id: "gp1", type: "income", branch: "Partner PisoWiFi", source: "PisoWiFi", partnerName: "Ramboanga", label: "PisoWiFi Collection", amount: 2000, ownerShare: 0.30, partnerShare: 0.70 };
+        const partnerRes = this.calculatePartnerPisoWifi([mockBranchOwnedWifiLog, mockGenuinePartnerLog], [{ id: "p1", name: "Ramboanga", type: "PisoWiFi", share: 0.30 }]);
+        const irayaRes = this.calculateIraya([mockBranchOwnedWifiLog], []);
+
+        tests.branchOwnedPisoWifiExclusionTest = (!partnerRes["PisoWiFi Collection"] && irayaRes.owner.pisowifiRevenue === 1452) ? "PASS" : "FAIL";
+        tests.genuinePartnerPisoWifiTest = (partnerRes["Ramboanga"] && partnerRes["Ramboanga"].grossRevenue === 2000 && partnerRes["Ramboanga"].ownerOperatingProfit === 600) ? "PASS" : "FAIL";
 
         return tests;
     }

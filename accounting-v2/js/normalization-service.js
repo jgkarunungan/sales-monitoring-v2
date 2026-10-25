@@ -329,6 +329,17 @@ export const normalizeLog = (rawDoc, configuredPartners = []) => {
         }
     }
 
+    // Sanitize partnerName for owner-operated branches
+    if (OWNER_OPERATED_BRANCHES.includes(branch)) {
+        const lowerCandidate = (partnerName || "").toLowerCase().trim();
+        const genericLabels = ["pisowifi collection", "pisowifi", "piso wifi", "pisowifi income", "collection", "unclassified", "cabagnan", "cabagñan", "iraya"];
+        if (!rawDoc.partnerName && !rawDoc.partner && !rawDoc.location) {
+            partnerName = null;
+        } else if (genericLabels.includes(lowerCandidate)) {
+            partnerName = null;
+        }
+    }
+
     // --- 4. AUTHORITATIVE OWNERSHIP SEMANTICS ---
     if (rawDoc.sharePercent !== undefined && rawDoc.sharePercent !== null) {
         let rawPct = parseFloat(rawDoc.sharePercent);
