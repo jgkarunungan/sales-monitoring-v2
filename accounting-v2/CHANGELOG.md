@@ -1,5 +1,16 @@
 # JGB ACCOUNTING V2 - CHANGELOG
 
+## [1.0.14] - Branch-Owned PisoWiFi Classification Fix & Overview Diagnostic Cleanup
+### Fixed
+- Prevented branch-owned PisoWiFi machines (e.g. Iraya ₱1,452.00 collection) from being misidentified as unenrolled remote partners.
+- Eliminated double-counting of branch-owned PisoWiFi income in `remotePartnersOwnerProfitTotal` and consolidated business earnings.
+- Cleared generic fallback partner names (`"PisoWiFi Collection"`, `"PisoWiFi"`) on owner-operated branch logs.
+
+### Changed
+- `dashboard-renderer.js`: Cleaned up Overview page UI by removing the long row of developer test badges and replacing it with a clean system status indicator.
+- `dashboard-renderer.js`: Relocated detailed developer verification suite results to Reports → Central Accounting Diagnostics under a collapsible developer panel.
+- `accounting-service.js`: Added `branchOwnedPisoWifiExclusionTest` and `genuinePartnerPisoWifiTest` to automated unit test suite (34/34 tests PASSing).
+
 ## [1.0.13] - Coffee Vendo Self-Recovery Finalization
 ### Added
 - Refined Coffee Vendo `SOURCE_SELF_RECOVERY` accounting coverage engine in `recovery-service.js`.

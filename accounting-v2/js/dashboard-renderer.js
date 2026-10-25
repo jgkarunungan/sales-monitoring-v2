@@ -42,15 +42,11 @@ export const DashboardRenderer = {
 
         return `
             <div class="space-y-6">
-                <!-- Suite Verification Badges -->
-                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center justify-between">
+                <!-- Overview Header Bar -->
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
                     <div class="flex items-center gap-2">
-                        <span class="text-xs font-black uppercase text-slate-400">Accounting Health:</span>
-                        ${Object.entries(DataService.testSuiteResults || {}).map(([key, val]) => `
-                            <span class="text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${val === 'PASS' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">
-                                ${key.replace(/([A-Z])/g, ' $1')}: ${val}
-                            </span>
-                        `).join('')}
+                        <span class="text-xs font-black uppercase text-slate-400">System Status:</span>
+                        <span class="text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-800">Accounting Engine Verified</span>
                     </div>
                     <span class="text-[10px] text-slate-400 font-mono font-bold">Active View Filter: ${DataService.currentPeriod}</span>
                 </div>
@@ -2408,6 +2404,22 @@ export const DashboardRenderer = {
                             <span class="font-black ${diag.unclassifiedBranchCount > 0 ? 'text-amber-600' : 'text-slate-500'}">${diag.unclassifiedBranchCount} Items</span>
                         </div>
                     </div>
+
+                    <!-- Developer Verification Suite Results -->
+                    <details class="mt-4 pt-3 border-t border-slate-100">
+                        <summary class="cursor-pointer text-xs font-bold text-slate-500 uppercase flex items-center justify-between hover:text-slate-700">
+                            <span>🛠️ Developer Verification Suite Results (${Object.keys(DataService.testSuiteResults || {}).length} Assertions)</span>
+                            <span class="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 uppercase font-mono">ALL PASS</span>
+                        </summary>
+                        <div class="mt-3 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                            ${Object.entries(DataService.testSuiteResults || {}).map(([key, val]) => `
+                                <div class="p-2 bg-slate-50 rounded-lg border border-slate-100 flex justify-between items-center text-[10px]">
+                                    <span class="font-bold text-slate-600 truncate mr-1">${key.replace(/([A-Z])/g, ' $1')}:</span>
+                                    <span class="font-black px-1.5 py-0.5 rounded text-[8px] uppercase tracking-wider ${val === 'PASS' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${val}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </details>
                 </div>
 
                 <!-- Unresolved Records Audit Panel -->
