@@ -955,9 +955,22 @@ export const DashboardRenderer = {
                         <h3 class="font-black text-xs uppercase tracking-widest text-slate-400 mb-4 border-b pb-2">Cabagñan Full Summary</h3>
                         <div class="space-y-3 text-xs">
                             <div class="flex justify-between text-slate-500"><span>Source Operating Profit</span><span>${money(r.sourceOperatingProfitBeforeSelfRecovery ?? r.totalSourceContribution)}</span></div>
-                            ${(r.sourceSelfRecoveryAllocated || (r.coffeeSelfRecovery && r.coffeeSelfRecovery.allocatedTotal)) ? `
-                                <div class="flex justify-between text-amber-600"><span>Coffee Vendo Self-Recovery</span><span>- ${money(r.sourceSelfRecoveryAllocated ?? r.coffeeSelfRecovery.allocatedTotal)}</span></div>
-                            ` : ''}
+                            ${r.sourceSelfRecoveryResults && Object.keys(r.sourceSelfRecoveryResults).length > 0 ? `
+                                ${Object.entries(r.sourceSelfRecoveryResults).map(([srcName, srcRes]) => {
+                                    if (!srcRes || !srcRes.allocatedTotal || srcRes.allocatedTotal <= 0) return '';
+                                    return `
+                                        <div class="flex justify-between text-amber-600">
+                                            <span>${safeText(srcName)} Self-Recovery</span>
+                                            <span>- ${money(srcRes.allocatedTotal)}</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            ` : ((r.sourceSelfRecoveryAllocated || (r.coffeeSelfRecovery && r.coffeeSelfRecovery.allocatedTotal)) ? `
+                                <div class="flex justify-between text-amber-600">
+                                    <span>Source Self-Recovery</span>
+                                    <span>- ${money(r.sourceSelfRecoveryAllocated ?? r.coffeeSelfRecovery.allocatedTotal)}</span>
+                                </div>
+                            ` : '')}
                             <div class="flex justify-between border-t pt-1"><span class="font-bold text-slate-700">Source Contribution Profit</span><span class="font-bold text-emerald-600">${money(r.totalSourceContribution)}</span></div>
                             <div class="flex justify-between text-red-500"><span>Actual ALECO (Paid)</span><span>- ${money(r.branchBills.aleco.amount)}</span></div>
                             <div class="flex justify-between text-red-500"><span>Actual DCTV (Paid)</span><span>- ${money(r.branchBills.dctv.amount)}</span></div>
@@ -1181,12 +1194,14 @@ export const DashboardRenderer = {
             `;
         }
 
+        const isAdmin = DataService.currentRole === 'admin';
+
         return `
             <table class="w-full text-left text-xs border-collapse">
                 <thead>
                     <tr class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
                         <th class="p-4">Date</th>
-                        <th class="p-4">Type</th>
+                        <th class="p-4">Type / Status</th>
                         <th class="p-4">Branch</th>
                         <th class="p-4">Source</th>
                         <th class="p-4 w-1/4">Description</th>
@@ -1197,23 +1212,41 @@ export const DashboardRenderer = {
                 </thead>
                 <tbody id="txLogTableBody" class="divide-y divide-slate-50">
                     ${filteredLogs.map(l => {
+                        const isVoided = l.status === 'VOIDED' || l.isVoided === true;
                         const formattedAmt = (l.amount !== undefined && l.amount !== null && !isNaN(l.amount))
                             ? "₱" + Number(l.amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})
                             : "₱0.00";
                         const formattedOwner = (l.ownerShare !== null && l.ownerShare !== undefined && !isNaN(l.ownerShare))
                             ? (Number(l.ownerShare) * 100).toFixed(0) + '%'
                             : 'N/A';
+
+                        const typePill = isVoided
+                            ? `<span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-slate-200 text-slate-600">VOIDED</span>`
+                            : `<span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${(l.type || '').toLowerCase() === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${l.type || 'unknown'}</span>`;
+
                         return `
-                            <tr class="hover:bg-slate-50 transition-colors group cursor-pointer" data-tx-id="${l.id || ''}">
+                            <tr class="hover:bg-slate-50 transition-colors group ${isVoided ? 'bg-slate-50/60 line-through opacity-70' : ''}" data-tx-id="${l.id || ''}">
                                 <td class="p-4 text-slate-500 font-mono">${l.date || '—'}</td>
-                                <td class="p-4"><span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${(l.type || '').toLowerCase() === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${l.type || 'unknown'}</span></td>
+                                <td class="p-4">${typePill}</td>
                                 <td class="p-4 font-bold text-slate-700">${l.branch || 'Unclassified'}</td>
                                 <td class="p-4 text-slate-500">${l.source || 'Unclassified'}</td>
                                 <td class="p-4 font-medium text-slate-800 truncate max-w-xs">${l.label || 'No Label'}</td>
-                                <td class="p-4 text-right font-black text-slate-900">${formattedAmt}</td>
+                                <td class="p-4 text-right font-black ${isVoided ? 'text-slate-400' : 'text-slate-900'}">${formattedAmt}</td>
                                 <td class="p-4 text-center font-bold text-slate-400">${formattedOwner}</td>
                                 <td class="p-4 text-center">
-                                    <button class="text-slate-300 hover:text-slate-900 font-bold uppercase text-[9px]">Details</button>
+                                    <div class="flex items-center justify-center gap-1.5 no-underline font-normal">
+                                        <button data-view-tx-history="${l.id || ''}" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[9px] uppercase rounded-lg transition-all shadow-sm">
+                                            History
+                                        </button>
+                                        ${isAdmin && !isVoided ? `
+                                            <button data-edit-tx="${l.id || ''}" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white font-black text-[9px] uppercase rounded-lg transition-all shadow-sm">
+                                                Edit
+                                            </button>
+                                            <button data-void-tx="${l.id || ''}" class="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-700 font-black text-[9px] uppercase rounded-lg transition-all shadow-sm">
+                                                Retract
+                                            </button>
+                                        ` : ''}
+                                    </div>
                                 </td>
                             </tr>
                         `;
@@ -1230,6 +1263,7 @@ export const DashboardRenderer = {
         const currentState = {
             period: state.period || 'All Time',
             month: state.month || null,
+            status: state.status || 'Active Only',
             type: state.type || 'All',
             branch: state.branch || 'All',
             source: state.source || 'All',
@@ -1328,6 +1362,15 @@ export const DashboardRenderer = {
                                 <select id="txLogSource" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
                                     <option value="All" ${currentState.source === 'All' ? 'selected' : ''}>All Sources</option>
                                     ${dynamicSources.map(s => `<option value="${s}" ${currentState.source === s ? 'selected' : ''}>${s}</option>`).join('')}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Status</label>
+                                <select id="txLogStatus" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl font-bold text-slate-700 outline-none cursor-pointer">
+                                    <option value="Active Only" ${!currentState.status || currentState.status === 'Active Only' ? 'selected' : ''}>Active Only</option>
+                                    <option value="Include Voided" ${currentState.status === 'Include Voided' ? 'selected' : ''}>Include Voided</option>
+                                    <option value="Voided" ${currentState.status === 'Voided' ? 'selected' : ''}>Voided Only</option>
                                 </select>
                             </div>
 
@@ -1673,16 +1716,18 @@ export const DashboardRenderer = {
                 <!-- DYNAMIC SOURCE SELF-RECOVERY SECTIONS -->
                 ${selfRecoveryKeys.map(srcKey => {
                     const srcRes = selfRecoveryResults[srcKey];
+                    const icon = srcKey.toLowerCase().includes("coffee") ? "☕" : (srcKey.toLowerCase().includes("pisonet") ? "🖥️" : "📡");
+                    const srcNameText = safeText(srcKey);
                     return `
                         <div class="bg-gradient-to-br from-amber-900/5 via-slate-900/5 to-white p-6 rounded-2xl border border-amber-200 shadow-sm space-y-6">
                             <div class="flex justify-between items-center border-b border-amber-200 pb-4">
                                 <div>
                                     <div class="flex items-center gap-2">
-                                        <span class="text-xl">☕</span>
-                                        <h3 class="font-black text-base uppercase tracking-wider text-slate-800">${safeText(srcKey)} Startup Cost Recovery</h3>
+                                        <span class="text-xl">${icon}</span>
+                                        <h3 class="font-black text-base uppercase tracking-wider text-slate-800">${srcNameText} Startup Cost Recovery</h3>
                                         <span class="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black rounded-full uppercase">Source Self-Recovery</span>
                                     </div>
-                                    <p class="text-xs text-slate-500 font-medium mt-0.5">Startup cost coverage measured strictly from ${safeText(srcKey)} operating performance (no cash transfer).</p>
+                                    <p class="text-xs text-slate-500 font-medium mt-0.5">Startup cost coverage measured strictly from ${srcNameText} operating performance (no cash transfer).</p>
                                 </div>
                                 ${srcRes && srcRes.totalRemaining === 0 ? `
                                     <span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-black rounded-full uppercase tracking-wider">✅ FULLY RECOVERED</span>
@@ -1694,15 +1739,15 @@ export const DashboardRenderer = {
                             <!-- Performance Cards Grid -->
                             <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 text-xs">
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Gross Coffee Revenue</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Gross ${srcNameText} Revenue</div>
                                     <div class="text-sm font-black text-slate-800 mt-0.5">${money(srcRes ? srcRes.grossRevenue : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Direct Coffee Expenses</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">Direct ${srcNameText} Expenses</div>
                                     <div class="text-sm font-black text-red-600 mt-0.5">${money(srcRes ? srcRes.directExpenses : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Coffee Operating Profit</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">${srcNameText} Operating Profit</div>
                                     <div class="text-sm font-black text-emerald-700 mt-0.5">${money(srcRes ? srcRes.operatingProfit : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
@@ -1718,7 +1763,7 @@ export const DashboardRenderer = {
                                     <div class="text-sm font-black text-emerald-600 mt-0.5">${money(srcRes ? srcRes.allocatedTotal : 0)}</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-xl border border-slate-200">
-                                    <div class="text-[9px] font-black text-slate-400 uppercase">Coffee Contribution</div>
+                                    <div class="text-[9px] font-black text-slate-400 uppercase">${srcNameText} Contribution After Recovery</div>
                                     <div class="text-sm font-black text-blue-700 mt-0.5">${money(srcRes ? srcRes.surplusAfterRecovery : 0)}</div>
                                 </div>
                             </div>
@@ -2917,6 +2962,220 @@ export const DashboardRenderer = {
                         <button id="btnSaveBill" class="bg-slate-900 text-white px-6 py-3 rounded-xl font-black uppercase text-xs shadow-lg">Save Template</button>
                         <button class="bg-white border border-slate-200 text-slate-500 px-6 py-3 rounded-xl font-black uppercase text-xs" onclick="window.UIController.closeModal()">Cancel</button>
                     </div>
+                </div>
+            </div>
+        `;
+    },
+
+    renderEditTransactionModalHtml(log) {
+        if (!log) return `<div class="p-8 text-center text-slate-400 font-bold">Transaction not found.</div>`;
+
+        const isExpense = (log.type || '').toLowerCase() === 'expense';
+        const formattedDate = log.transactionDate || log.date || new Date().toISOString().split('T')[0];
+
+        return `
+            <div class="p-8 space-y-6">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                    <div>
+                        <h2 class="text-xl font-black text-slate-800 uppercase tracking-tight">Edit Transaction</h2>
+                        <p class="text-xs text-slate-400 font-mono mt-0.5">ID: ${safeText(log.id)} | Original Creator: ${safeText(log.raw?.createdBy || log.createdBy, 'Admin')}</p>
+                    </div>
+                    <button class="text-slate-400 hover:text-slate-600 font-black text-lg" onclick="window.UIController.closeModal()">✕</button>
+                </div>
+
+                <div class="space-y-4">
+                    <input type="hidden" id="editTxId" value="${safeText(log.id)}">
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Transaction Type</label>
+                            <select id="editTxType" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 text-xs">
+                                <option value="income" ${!isExpense ? 'selected' : ''}>Income</option>
+                                <option value="expense" ${isExpense ? 'selected' : ''}>Expense</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Transaction Date</label>
+                            <input type="date" id="editTxDate" value="${formattedDate}" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 text-xs">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Branch</label>
+                            <select id="editTxBranch" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 text-xs">
+                                <option value="Cabagñan" ${log.branch === 'Cabagñan' ? 'selected' : ''}>Cabagñan</option>
+                                <option value="Iraya" ${log.branch === 'Iraya' ? 'selected' : ''}>Iraya</option>
+                                <option value="Partner PisoWiFi" ${log.branch === 'Partner PisoWiFi' ? 'selected' : ''}>Partner PisoWiFi</option>
+                                <option value="Unclassified" ${log.branch === 'Unclassified' ? 'selected' : ''}>Unclassified</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Income / Expense Source</label>
+                            <select id="editTxSource" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 text-xs">
+                                <option value="Coffee Vendo" ${log.source === 'Coffee Vendo' ? 'selected' : ''}>Coffee Vendo</option>
+                                <option value="Pisonet" ${log.source === 'Pisonet' ? 'selected' : ''}>Pisonet</option>
+                                <option value="PisoWiFi" ${log.source === 'PisoWiFi' ? 'selected' : ''}>PisoWiFi</option>
+                                <option value="Printing / Photocopy" ${log.source === 'Printing / Photocopy' ? 'selected' : ''}>Printing / Photocopy</option>
+                                <option value="Unclassified" ${log.source === 'Unclassified' ? 'selected' : ''}>Unclassified</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 ${isExpense ? '' : 'hidden'}" id="editExpenseScopeContainer">
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Expense Scope</label>
+                            <select id="editTxScope" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 text-xs">
+                                <option value="Source Direct Expense" ${log.expenseScope === 'Source Direct Expense' ? 'selected' : ''}>Source Direct Expense</option>
+                                <option value="Branch Operating Expense" ${log.expenseScope === 'Branch Operating Expense' ? 'selected' : ''}>Branch Operating Expense</option>
+                                <option value="Shared Branch Expense" ${log.expenseScope === 'Shared Branch Expense' ? 'selected' : ''}>Shared Branch Expense</option>
+                                <option value="Unclassified" ${log.expenseScope === 'Unclassified' ? 'selected' : ''}>Unclassified</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Expense Category</label>
+                            <select id="editTxCategory" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 text-xs">
+                                <option value="ALECO" ${log.expenseCategory === 'ALECO' ? 'selected' : ''}>Electricity (ALECO)</option>
+                                <option value="DCTV" ${log.expenseCategory === 'DCTV' ? 'selected' : ''}>Internet (DCTV)</option>
+                                <option value="Water Bill" ${log.expenseCategory === 'Water Bill' ? 'selected' : ''}>Water Bill</option>
+                                <option value="Powder" ${log.expenseCategory === 'Powder' ? 'selected' : ''}>Powder</option>
+                                <option value="Vendo Cups" ${log.expenseCategory === 'Vendo Cups' ? 'selected' : ''}>Vendo Cups</option>
+                                <option value="Partner Payout" ${log.expenseCategory === 'Partner Payout' ? 'selected' : ''}>Partner Payout</option>
+                                <option value="General" ${!log.expenseCategory || log.expenseCategory === 'General' ? 'selected' : ''}>General / Direct</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Amount (₱)</label>
+                            <input type="number" id="editTxAmount" value="${log.amount || ''}" step="0.01" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-black text-slate-900 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Description / Label</label>
+                            <input type="text" id="editTxLabel" value="${safeText(log.label, '')}" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 text-xs">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Reason for Edit (Required for Audit)</label>
+                        <textarea id="editTxReason" rows="2" placeholder="Explain the accounting correction (e.g. Corrected source from Coffee Vendo to Pisonet)..." class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-medium text-slate-800 text-xs outline-none focus:ring-2 focus:ring-slate-300"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                    <button class="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs uppercase rounded-xl transition-all" onclick="window.UIController.closeModal()">Cancel</button>
+                    <button id="btnSaveTxEdit" class="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase rounded-xl shadow-md transition-all">Save Correction</button>
+                </div>
+            </div>
+        `;
+    },
+
+    renderVoidTransactionModalHtml(log) {
+        if (!log) return `<div class="p-8 text-center text-slate-400 font-bold">Transaction not found.</div>`;
+
+        const formattedAmt = "₱" + Number(log.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+        return `
+            <div class="p-8 space-y-6">
+                <div class="flex justify-between items-center border-b border-red-100 pb-4">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl">⚠️</span>
+                        <div>
+                            <h2 class="text-xl font-black text-red-700 uppercase tracking-tight">Retract / Void Transaction</h2>
+                            <p class="text-xs text-slate-400 font-mono mt-0.5">ID: ${safeText(log.id)}</p>
+                        </div>
+                    </div>
+                    <button class="text-slate-400 hover:text-slate-600 font-black text-lg" onclick="window.UIController.closeModal()">✕</button>
+                </div>
+
+                <div class="bg-red-50 p-4 rounded-2xl border border-red-200 text-xs space-y-2 text-red-900">
+                    <div class="font-black uppercase text-[10px] tracking-wider text-red-700">Transaction Summary</div>
+                    <div class="grid grid-cols-2 gap-2 font-medium">
+                        <div><span class="text-slate-500 font-normal">Date:</span> ${safeText(log.date)}</div>
+                        <div><span class="text-slate-500 font-normal">Type:</span> <strong class="uppercase">${safeText(log.type)}</strong></div>
+                        <div><span class="text-slate-500 font-normal">Branch / Source:</span> ${safeText(log.branch)} / ${safeText(log.source)}</div>
+                        <div><span class="text-slate-500 font-normal">Amount:</span> <strong class="font-mono text-slate-900">${formattedAmt}</strong></div>
+                    </div>
+                    <div><span class="text-slate-500 font-normal">Description:</span> <strong>${safeText(log.label)}</strong></div>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Reason for Retraction (Required)</label>
+                    <textarea id="voidTxReason" rows="3" placeholder="Provide reason for voiding (e.g. Duplicate entry recorded by mistake)..." class="w-full bg-slate-50 border border-slate-200 p-3 rounded-2xl font-medium text-slate-800 text-xs outline-none focus:ring-2 focus:ring-red-300"></textarea>
+                    <p class="text-[10px] text-slate-400 font-medium">This transaction will be marked VOIDED and excluded from all financial calculations, revenue figures, recovery queues, and savings. The original record and audit history will be preserved.</p>
+                </div>
+
+                <div class="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                    <button class="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs uppercase rounded-xl transition-all" onclick="window.UIController.closeModal()">Cancel</button>
+                    <button id="btnConfirmTxVoid" data-tx-id="${safeText(log.id)}" class="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase rounded-xl shadow-md transition-all">Confirm Retraction</button>
+                </div>
+            </div>
+        `;
+    },
+
+    renderTransactionHistoryModalHtml(log, auditLogs = []) {
+        if (!log) return `<div class="p-8 text-center text-slate-400 font-bold">Transaction not found.</div>`;
+
+        const relatedAudits = (auditLogs || []).filter(a => a && (a.entityId === log.id || a.targetId === log.id));
+        const isVoided = log.status === 'VOIDED' || log.isVoided === true;
+        const formattedAmt = "₱" + Number(log.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+        return `
+            <div class="p-8 space-y-6">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-xl font-black text-slate-800 uppercase tracking-tight">Transaction Details & History</h2>
+                            <span class="px-2.5 py-0.5 rounded-full font-black text-[9px] uppercase ${isVoided ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'}">${isVoided ? 'VOIDED' : 'POSTED'}</span>
+                        </div>
+                        <p class="text-xs text-slate-400 font-mono mt-0.5">ID: ${safeText(log.id)}</p>
+                    </div>
+                    <button class="text-slate-400 hover:text-slate-600 font-black text-lg" onclick="window.UIController.closeModal()">✕</button>
+                </div>
+
+                <!-- Current Document Details -->
+                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs space-y-2">
+                    <div class="font-black uppercase text-[10px] tracking-wider text-slate-400">Current Record Snapshot</div>
+                    <div class="grid grid-cols-2 gap-2 text-slate-700">
+                        <div><span class="text-slate-400 font-normal">Date:</span> <strong>${safeText(log.date)}</strong></div>
+                        <div><span class="text-slate-400 font-normal">Type:</span> <strong class="uppercase">${safeText(log.type)}</strong></div>
+                        <div><span class="text-slate-400 font-normal">Branch:</span> <strong>${safeText(log.branch)}</strong></div>
+                        <div><span class="text-slate-400 font-normal">Source:</span> <strong>${safeText(log.source)}</strong></div>
+                        <div><span class="text-slate-400 font-normal">Amount:</span> <strong class="font-mono text-slate-900">${formattedAmt}</strong></div>
+                        <div><span class="text-slate-400 font-normal">Owner Share:</span> <strong>${log.ownerShare !== null && log.ownerShare !== undefined ? (log.ownerShare * 100).toFixed(0) + '%' : 'N/A'}</strong></div>
+                    </div>
+                    <div><span class="text-slate-400 font-normal">Description:</span> <strong>${safeText(log.label)}</strong></div>
+                    ${log.voidReason ? `<div class="p-2 bg-red-100 text-red-800 rounded-lg text-[11px] font-medium"><strong>Voided Reason:</strong> ${safeText(log.voidReason)} (by ${safeText(log.voidedBy, 'Admin')})</div>` : ''}
+                </div>
+
+                <!-- Audit Log Timeline -->
+                <div class="space-y-3">
+                    <h3 class="font-black text-xs uppercase tracking-widest text-slate-400 border-b pb-2">Audit History Timeline</h3>
+                    ${relatedAudits.length === 0 ? `
+                        <p class="text-xs text-slate-400 italic font-medium">No explicit audit modifications recorded for this transaction.</p>
+                    ` : `
+                        <div class="space-y-3 max-h-60 overflow-y-auto pr-1">
+                            ${relatedAudits.map(a => {
+                                const actionText = safeText(a.action || a.event, 'action').replace(/_/g, ' ').toUpperCase();
+                                const dateText = a.timestamp ? (a.timestamp.toDate ? a.timestamp.toDate().toLocaleString() : new Date(a.timestamp).toLocaleString()) : 'Unknown time';
+                                return `
+                                    <div class="p-3 bg-white rounded-xl border border-slate-200 text-xs space-y-1">
+                                        <div class="flex justify-between items-center text-[10px]">
+                                            <span class="font-black text-slate-800 uppercase tracking-wider">${actionText}</span>
+                                            <span class="text-slate-400 font-mono">${dateText}</span>
+                                        </div>
+                                        <div class="text-slate-600 font-medium">By: <strong>${safeText(a.username || a.user, 'Admin')}</strong></div>
+                                        ${a.notes ? `<div class="text-slate-500 italic text-[11px] bg-slate-50 p-2 rounded">${safeText(a.notes)}</div>` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `}
+                </div>
+
+                <div class="flex justify-end border-t border-slate-100 pt-4">
+                    <button class="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase rounded-xl transition-all" onclick="window.UIController.closeModal()">Close</button>
                 </div>
             </div>
         `;

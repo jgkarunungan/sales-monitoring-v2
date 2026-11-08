@@ -361,6 +361,7 @@ export const UIController = {
         const customEndEl = document.getElementById('txLogCustomEnd');
 
         const typeEl = document.getElementById('txLogType');
+        const statusEl = document.getElementById('txLogStatus');
         const branchEl = document.getElementById('txLogBranch');
         const sourceEl = document.getElementById('txLogSource');
         const partnerEl = document.getElementById('txLogPartner');
@@ -383,6 +384,7 @@ export const UIController = {
             month: mVal,
             customStart: cStart,
             customEnd: cEnd,
+            status: statusEl ? statusEl.value : 'Active Only',
             type: typeEl ? typeEl.value : 'All',
             branch: branchEl ? branchEl.value : 'All',
             source: sourceEl ? sourceEl.value : 'All',
@@ -480,6 +482,7 @@ export const UIController = {
                     month: null,
                     customStart: null,
                     customEnd: null,
+                    status: 'Active Only',
                     type: 'All',
                     branch: 'All',
                     source: 'All',
@@ -494,12 +497,191 @@ export const UIController = {
     },
 
     bindTxRowClickListeners() {
-        document.querySelectorAll('[data-tx-id]').forEach(row => {
-            row.addEventListener('click', () => {
+        const tableBody = document.getElementById('txLogTableBody');
+        if (!tableBody) return;
+
+        // Ensure listeners are bound once
+        if (tableBody.dataset.listenersBound) return;
+        tableBody.dataset.listenersBound = 'true';
+
+        tableBody.addEventListener('click', (e) => {
+            const editBtn = e.target.closest('[data-edit-tx]');
+            if (editBtn) {
+                e.stopPropagation();
+                const id = editBtn.getAttribute('data-edit-tx');
+                if (id) this.showEditTransactionModal(id);
+                return;
+            }
+
+            const voidBtn = e.target.closest('[data-void-tx]');
+            if (voidBtn) {
+                e.stopPropagation();
+                const id = voidBtn.getAttribute('data-void-tx');
+                if (id) this.showVoidTransactionModal(id);
+                return;
+            }
+
+            const historyBtn = e.target.closest('[data-view-tx-history]');
+            if (historyBtn) {
+                e.stopPropagation();
+                const id = historyBtn.getAttribute('data-view-tx-history');
+                if (id) this.showTransactionHistoryModal(id);
+                return;
+            }
+
+            const row = e.target.closest('[data-tx-id]');
+            if (row) {
                 const id = row.getAttribute('data-tx-id');
-                if (id) this.showTransactionDetails(id);
-            });
+                if (id) this.showTransactionHistoryModal(id);
+            }
         });
+    },
+
+    showEditTransactionModal(id) {
+        if (DataService.currentRole !== 'admin') {
+            alert('Unauthorized: Only administrators can edit transaction records.');
+            return;
+        }
+
+        const log = DataService.normalizedLogs.find(l => l.id === id);
+        if (!log) {
+            alert('Transaction record not found.');
+            return;
+        }
+
+        const html = DashboardRenderer.renderEditTransactionModalHtml(log);
+        this.openModal(html);
+
+        const typeEl = document.getElementById('editTxType');
+        const scopeContainer = document.getElementById('editExpenseScopeContainer');
+        if (typeEl && scopeContainer) {
+            typeEl.addEventListener('change', (e) => {
+                if (e.target.value === 'expense') {
+                    scopeContainer.classList.remove('hidden');
+                } else {
+                    scopeContainer.classList.add('hidden');
+                }
+            });
+        }
+
+        const saveBtn = document.getElementById('btnSaveTxEdit');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async () => {
+                saveBtn.disabled = true;
+                saveBtn.innerText = 'Saving...';
+
+                try {
+                    const txId = document.getElementById('editTxId')?.value;
+                    const type = document.getElementById('editTxType')?.value || 'income';
+                    const date = document.getElementById('editTxDate')?.value;
+                    const branch = document.getElementById('editTxBranch')?.value || 'Unclassified';
+                    const source = document.getElementById('editTxSource')?.value || 'Unclassified';
+                    const scope = document.getElementById('editTxScope')?.value || 'Unclassified';
+                    const category = document.getElementById('editTxCategory')?.value || 'General';
+                    const amountVal = parseFloat(document.getElementById('editTxAmount')?.value || '0');
+                    const label = document.getElementById('editTxLabel')?.value || '';
+                    const reason = document.getElementById('editTxReason')?.value || '';
+
+                    if (!date) throw new Error('Transaction date is required.');
+                    if (isNaN(amountVal) || amountVal <= 0) throw new Error('Amount must be greater than ₱0.00.');
+                    if (!reason || !reason.trim()) throw new Error('Reason for edit is required for audit history.');
+
+                    let ownerShare = log.ownerShare;
+                    let partnerShare = log.partnerShare;
+                    if (branch === 'Cabagñan') {
+                        ownerShare = 1.0;
+                        partnerShare = 0.0;
+                    } else if (branch === 'Iraya' && source === 'PisoWiFi') {
+                        ownerShare = 1.0;
+                        partnerShare = 0.0;
+                    } else if (branch === 'Iraya' && source === 'Pisonet') {
+                        ownerShare = 0.50;
+                        partnerShare = 0.50;
+                    }
+
+                    const updatedPayload = {
+                        type,
+                        transactionDate: date,
+                        dateStr: date,
+                        branch,
+                        source,
+                        sourceType: source,
+                        accountingGroup: branch,
+                        amount: amountVal,
+                        label,
+                        ownerShare,
+                        partnerShare,
+                        sharePercent: ownerShare,
+                        expenseScope: type === 'expense' ? scope : null,
+                        expenseCategory: type === 'expense' ? category : null
+                    };
+
+                    await TransactionService.updateTransaction(txId, updatedPayload, reason);
+                    this.closeModal();
+                    this.refreshView();
+                } catch (err) {
+                    alert('Failed to edit transaction: ' + err.message);
+                    saveBtn.disabled = false;
+                    saveBtn.innerText = 'Save Correction';
+                }
+            });
+        }
+    },
+
+    showVoidTransactionModal(id) {
+        if (DataService.currentRole !== 'admin') {
+            alert('Unauthorized: Only administrators can retract transaction records.');
+            return;
+        }
+
+        const log = DataService.normalizedLogs.find(l => l.id === id);
+        if (!log) {
+            alert('Transaction record not found.');
+            return;
+        }
+
+        if (log.status === 'VOIDED' || log.isVoided) {
+            alert('This transaction is already voided.');
+            return;
+        }
+
+        const html = DashboardRenderer.renderVoidTransactionModalHtml(log);
+        this.openModal(html);
+
+        const confirmBtn = document.getElementById('btnConfirmTxVoid');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', async () => {
+                confirmBtn.disabled = true;
+                confirmBtn.innerText = 'Retracting...';
+
+                try {
+                    const reason = document.getElementById('voidTxReason')?.value || '';
+                    if (!reason || !reason.trim()) {
+                        throw new Error('Retraction reason is required.');
+                    }
+
+                    await TransactionService.voidTransaction(id, reason);
+                    this.closeModal();
+                    this.refreshView();
+                } catch (err) {
+                    alert('Failed to retract transaction: ' + err.message);
+                    confirmBtn.disabled = false;
+                    confirmBtn.innerText = 'Confirm Retraction';
+                }
+            });
+        }
+    },
+
+    showTransactionHistoryModal(id) {
+        const log = DataService.normalizedLogs.find(l => l.id === id);
+        if (!log) {
+            alert('Transaction record not found.');
+            return;
+        }
+
+        const auditLogs = DataService.auditLogs || [];
+        const html = DashboardRenderer.renderTransactionHistoryModalHtml(log, auditLogs);
+        this.openModal(html);
     },
 
     updateTransactionLogView() {

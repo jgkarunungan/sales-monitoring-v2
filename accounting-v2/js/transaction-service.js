@@ -108,30 +108,93 @@ export const TransactionService = {
         return docRef.id;
     },
 
-    async updateTransaction(id, updatedData) {
-        const before = updatedData.raw;
+    async updateTransaction(id, updatedData, reason = "") {
+        if (!id) throw new Error("Transaction ID is required for edit.");
+
         const docRef = doc(db, "jgs_logs", id);
+        const snapshot = await getDoc(docRef);
+        if (!snapshot.exists()) {
+            throw new Error("Transaction not found in database.");
+        }
+
+        const previousData = snapshot.data();
+        const adminUser = DataService.currentUser?.username || "Admin";
 
         const payload = { ...updatedData };
         delete payload.id;
         delete payload.raw;
         delete payload.classificationConfidence;
         delete payload.classificationNotes;
+        delete payload.isAmbiguousDate;
+        delete payload.timestamp;
+        delete payload.date;
 
-        if (payload.ownerShare !== undefined) {
+        if (payload.ownerShare !== undefined && payload.ownerShare !== null) {
             payload.sharePercent = payload.ownerShare;
-            payload.partnerShare = 1 - payload.ownerShare;
+            payload.partnerShare = 1.0 - payload.ownerShare;
         }
-        
-        await updateDoc(docRef, {
-            ...payload,
-            lastUpdated: serverTimestamp()
-        });
 
-        await SettingsService.logAudit("transaction_edit", "transaction", id, before, payload);
-        if (payload.transactionDate) {
+        payload.updatedBy = adminUser;
+        payload.updatedAt = serverTimestamp();
+        payload.lastUpdated = serverTimestamp();
+
+        if (reason && reason.trim()) {
+            payload.editReason = reason.trim();
+        }
+
+        await updateDoc(docRef, payload);
+
+        await SettingsService.logAudit("transaction_edited", "transaction", id, previousData, payload, reason ? `Edited transaction ${id}: ${reason}` : `Edited transaction ${id}`);
+
+        const prevDate = previousData.transactionDate || previousData.dateStr || previousData.date;
+        if (prevDate) {
+            await this.checkBackdatedTransactionPolicy(prevDate);
+        }
+        if (payload.transactionDate && payload.transactionDate !== prevDate) {
             await this.checkBackdatedTransactionPolicy(payload.transactionDate);
         }
+
+        return true;
+    },
+
+    async voidTransaction(id, reason = "") {
+        if (!id) throw new Error("Transaction ID is required for retraction.");
+        if (!reason || !reason.trim()) throw new Error("Retraction reason is required.");
+
+        const docRef = doc(db, "jgs_logs", id);
+        const snapshot = await getDoc(docRef);
+        if (!snapshot.exists()) {
+            throw new Error("Transaction not found in database.");
+        }
+
+        const previousData = snapshot.data();
+        if (previousData.status === "VOIDED" || previousData.isVoided) {
+            throw new Error("Transaction is already voided.");
+        }
+
+        const adminUser = DataService.currentUser?.username || "Admin";
+        const voidPayload = {
+            status: "VOIDED",
+            isVoided: true,
+            voidedAt: serverTimestamp(),
+            voidedBy: adminUser,
+            voidReason: reason.trim(),
+            lastUpdated: serverTimestamp()
+        };
+
+        await updateDoc(docRef, voidPayload);
+
+        await SettingsService.logAudit("transaction_voided", "transaction", id, previousData, {
+            ...previousData,
+            ...voidPayload
+        }, `Voided transaction ${id}: ${reason.trim()}`);
+
+        const txDate = previousData.transactionDate || previousData.dateStr || previousData.date;
+        if (txDate) {
+            await this.checkBackdatedTransactionPolicy(txDate);
+        }
+
+        return true;
     },
 
     async deleteTransaction(id) {

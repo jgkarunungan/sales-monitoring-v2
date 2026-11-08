@@ -1,5 +1,22 @@
 # JGB ACCOUNTING V2 - CHANGELOG
 
+## [1.0.15] - Cabagñan Source-Specific Recovery Correction & Transaction Edit/Void Release
+### Added
+- Transaction Edit and Retraction/Voiding features in `Transaction Log V2` (`transaction-service.js`, `ui-controller.js`, `dashboard-renderer.js`).
+- Action controls (`Edit`, `Retract`, `History`) with role-based authorization for administrators (`DataService.currentRole === 'admin'`).
+- Audit logging to `jgs_audit_logs` for all edits and retractions with mandatory edit/retraction reasons (`SettingsService.logAudit()`).
+- Backdated recalculation protection: editing/voiding records in locked closed months automatically flags `status = 'RECALCULATION REQUIRED'` in the recovery ledger without mutating historical allocations.
+- Dynamic multi-source `SOURCE_SELF_RECOVERY` support in `calculateCabagnan()`, enabling Pisonet startup cost recovery for hardware components (e.g. motherboard `rec_1793965533707`).
+
+### Fixed
+- Fixed Cabagñan Full Summary card renderer in `dashboard-renderer.js` to dynamically list individual source self-recoveries (`Pisonet Self-Recovery: -₱1,718.00`) instead of hardcoding Coffee Vendo label for all source self-recoveries.
+- Corrected syntax error in `dashboard-renderer.js` by removing redundant closing brace.
+- Voided transactions (`isVoided: true`) are strictly excluded from all accounting calculations, gross revenue, operating profit, recovery pools, savings, and recency summaries.
+
+### Verified
+- Live browser & Firestore verification against `jgs-business-tracker` cloud database.
+- 37/37 automated unit test assertions PASSing.
+
 ## [1.0.14] - Branch-Owned PisoWiFi Classification Fix & Overview Diagnostic Cleanup
 ### Fixed
 - Prevented branch-owned PisoWiFi machines (e.g. Iraya ₱1,452.00 collection) from being misidentified as unenrolled remote partners.

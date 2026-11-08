@@ -415,6 +415,13 @@ export const normalizeLog = (rawDoc, configuredPartners = []) => {
         expenseScope: expenseScope,
         expenseCategory: expenseCategory,
         pendingBalance: pendingBalance,
+        status: rawDoc.status || (rawDoc.isVoided ? "VOIDED" : "POSTED"),
+        isVoided: rawDoc.status === "VOIDED" || rawDoc.isVoided === true,
+        voidedAt: rawDoc.voidedAt || null,
+        voidedBy: rawDoc.voidedBy || null,
+        voidReason: rawDoc.voidReason || null,
+        updatedAt: rawDoc.updatedAt || rawDoc.lastUpdated || null,
+        updatedBy: rawDoc.updatedBy || null,
         classificationConfidence: confidence,
         classificationNotes: notes.join(" | "),
         raw: rawDoc

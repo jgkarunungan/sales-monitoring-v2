@@ -307,6 +307,15 @@ export const AccountingService = {
 
         let result = [...logs];
 
+        // 0. Voided Status Filter (Default: Active Only)
+        if (filters.status === 'Voided' || filters.status === 'voided') {
+            result = result.filter(l => l && (l.isVoided === true || l.status === 'VOIDED'));
+        } else if (filters.status === 'Include Voided' || filters.status === 'Include Void' || filters.includeVoided === true || filters.status === 'ALL') {
+            // Keep both active and voided
+        } else {
+            result = result.filter(l => l && !l.isVoided && l.status !== 'VOIDED');
+        }
+
         // 1. Period Filter (DEFAULT = 'All Time')
         const period = filters.period || 'All Time';
         result = this.filterLogsByPeriod(result, period, filters.customStart, filters.customEnd);
@@ -529,7 +538,7 @@ export const AccountingService = {
         });
 
         // 4. Map Income Logs
-        incomeLogs.forEach(l => {
+        (incomeLogs || []).filter(l => l && !l.isVoided && l.status !== 'VOIDED').forEach(l => {
             const location = l.partnerName || l.partner || l.branch || "Unclassified";
             const sourceName = l.source || l.sourceType || "Unclassified";
             const branch = l.branch || "Unclassified";
@@ -608,24 +617,33 @@ export const AccountingService = {
     },
 
     calculateCabagnan(filteredLogs, assets, recoveryLedger = [], periodState = null) {
-        const branchLogs = filteredLogs.filter(l => l.branch === "Cabagñan");
+        const branchLogs = (filteredLogs || []).filter(l => l && l.branch === "Cabagñan" && !l.isVoided && l.status !== 'VOIDED');
 
         let targetPeriodKey = null;
         if (periodState && typeof periodState === 'object' && periodState.period === 'Specific Month' && periodState.month) {
             targetPeriodKey = periodState.month;
         }
 
-        // Compute Coffee Vendo Self-Recovery FIRST
-        const coffeeSelfRecovery = RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", branchLogs, assets, recoveryLedger, targetPeriodKey);
-
-        // Base core sources
+        // Core source types
         const coreSourceTypes = ["Pisonet", "PisoWiFi", "Coffee Vendo", "Printing / Photocopy"];
 
-        // Identify all unique sources present in this branch's logs
+        // Identify all unique sources present in this branch's logs or active self-recovery targets
         const allSourceNames = [...new Set([
             ...coreSourceTypes,
-            ...branchLogs.map(l => l.source).filter(s => s && s !== 'Unclassified')
+            ...branchLogs.map(l => l.source).filter(s => s && s !== 'Unclassified'),
+            ...(assets || []).filter(a => a && !a.archived && a.recoveryFundingMode === "SOURCE_SELF_RECOVERY" && a.source).map(a => a.source)
         ])];
+
+        // Compute Source Self-Recovery dynamically for any source with SOURCE_SELF_RECOVERY targets
+        const sourceSelfRecoveryResults = {};
+        allSourceNames.forEach(src => {
+            const hasSelfTargets = (assets || []).some(a => a && !a.archived && a.recoveryFundingMode === "SOURCE_SELF_RECOVERY" && a.source && a.source.toLowerCase() === src.toLowerCase());
+            if (hasSelfTargets || src === "Coffee Vendo") {
+                sourceSelfRecoveryResults[src] = RecoveryService.calculateSourceSelfRecovery(src, branchLogs, assets, recoveryLedger, targetPeriodKey);
+            }
+        });
+
+        const coffeeSelfRecovery = sourceSelfRecoveryResults["Coffee Vendo"] || RecoveryService.calculateSourceSelfRecovery("Coffee Vendo", branchLogs, assets, recoveryLedger, targetPeriodKey);
 
         const sourcesBreakdown = {};
 
@@ -643,7 +661,8 @@ export const AccountingService = {
             });
 
             const opProfit = grossRevenue - directExpenses;
-            const recAlloc = (src === "Coffee Vendo") ? coffeeSelfRecovery.allocatedTotal : 0;
+            const selfRec = sourceSelfRecoveryResults[src];
+            const recAlloc = selfRec ? selfRec.allocatedTotal : 0;
             const surplus = opProfit - recAlloc;
 
             sourcesBreakdown[src] = {
@@ -656,7 +675,7 @@ export const AccountingService = {
             };
         });
 
-        // Sum up source contributions (for Coffee Vendo, use surplus after self-recovery)
+        // Sum up source contributions (using surplus after source self-recovery)
         let totalSourceContribution = 0;
         Object.keys(sourcesBreakdown).forEach(src => {
             totalSourceContribution += sourcesBreakdown[src].surplusAfterRecovery;
@@ -690,11 +709,15 @@ export const AccountingService = {
         const savingsContribution = profitAfterRecovery > 0 ? profitAfterRecovery * 0.05 : 0;
         const finalBranchEarnings = profitAfterRecovery - savingsContribution;
 
-        // Combine allocations detail (Coffee Self-Recovery + General Waterfall)
+        // Combine allocations detail (All Source Self-Recoveries + General Waterfall)
+        const allSelfAllocations = Object.values(sourceSelfRecoveryResults).flatMap(r => r.allocations || []);
         const combinedAllocations = [
-            ...coffeeSelfRecovery.allocations,
+            ...allSelfAllocations,
             ...waterfallResult.allocations
         ];
+
+        // Total source self-recovery allocated across all sources
+        const sourceSelfRecoveryAllocated = Object.values(sourceSelfRecoveryResults).reduce((sum, r) => sum + (r.allocatedTotal || 0), 0);
 
         // Sum up source operating profit before self-recovery
         let sourceOperatingProfitBeforeSelfRecovery = 0;
@@ -707,7 +730,8 @@ export const AccountingService = {
             sources: sourcesBreakdown,
             sourceOperatingProfitBeforeSelfRecovery,
             coffeeSelfRecovery,
-            sourceSelfRecoveryAllocated: coffeeSelfRecovery.allocatedTotal,
+            sourceSelfRecoveryResults,
+            sourceSelfRecoveryAllocated,
             totalSourceContribution,
             branchBills,
             otherBranchExpenses,
@@ -727,7 +751,7 @@ export const AccountingService = {
     },
 
     calculateIraya(filteredLogs, assets, recoveryLedger = [], periodState = null) {
-        const branchLogs = filteredLogs.filter(l => l.branch === "Iraya");
+        const branchLogs = (filteredLogs || []).filter(l => l && l.branch === "Iraya" && !l.isVoided && l.status !== 'VOIDED');
 
         let targetPeriodKey = null;
         if (periodState && typeof periodState === 'object' && periodState.period === 'Specific Month' && periodState.month) {
@@ -896,7 +920,7 @@ export const AccountingService = {
             };
         });
 
-        (filteredLogs || []).forEach(l => {
+        (filteredLogs || []).filter(l => l && !l.isVoided && l.status !== 'VOIDED').forEach(l => {
             if (OWNER_OPERATED_BRANCHES.includes(l.branch)) return;
 
             const isPisoWifiSource = l.source === "PisoWiFi" || (l.label && l.label.toLowerCase().includes("pisowifi")) || (l.label && l.label.toLowerCase().includes("piso wifi"));
@@ -1034,7 +1058,9 @@ export const AccountingService = {
         let sharedOperatingCosts = 0;
         let unclassifiedOperatingCosts = 0;
 
-        allLogs.forEach(l => {
+        const activeLogs = (allLogs || []).filter(l => l && !l.isVoided && l.status !== 'VOIDED');
+
+        activeLogs.forEach(l => {
             const isIncome = l.type && l.type.toLowerCase() === "income";
             const isExpense = l.type && (l.type.toLowerCase() === "expense" || l.type.toLowerCase() === "outflow");
 
@@ -1082,7 +1108,7 @@ export const AccountingService = {
     },
 
     calculateMonthlyBusinessPerformance(logs = [], settings = {}, range = '12 Months') {
-        if (!logs) logs = [];
+        const activeLogs = (logs || []).filter(l => l && !l.isVoided && l.status !== 'VOIDED');
 
         const now = new Date();
         const currYear = now.getFullYear();
@@ -1279,7 +1305,7 @@ export const AccountingService = {
     },
 
     calculateMonthlySourcePerformance(logs = [], settings = {}, range = '12 Months') {
-        if (!logs) logs = [];
+        const activeLogs = (logs || []).filter(l => l && !l.isVoided && l.status !== 'VOIDED');
 
         const now = new Date();
         const currYear = now.getFullYear();
@@ -1855,6 +1881,24 @@ export const AccountingService = {
 
         tests.branchOwnedPisoWifiExclusionTest = (!partnerRes["PisoWiFi Collection"] && irayaRes.owner.pisowifiRevenue === 1452) ? "PASS" : "FAIL";
         tests.genuinePartnerPisoWifiTest = (partnerRes["Ramboanga"] && partnerRes["Ramboanga"].grossRevenue === 2000 && partnerRes["Ramboanga"].ownerOperatingProfit === 600) ? "PASS" : "FAIL";
+
+        // Pisonet Motherboard Recovery Target Verification Test
+        const mockPisonetTarget = { id: "rec_mb1", name: "motherboard", branch: "Cabagñan", source: "Pisonet", cost: 3500, recoveryFundingMode: "SOURCE_SELF_RECOVERY", recoveryPercent: 0.50 };
+        const mockPisonetLogs = [{ id: "l_p1", type: "income", branch: "Cabagñan", source: "Pisonet", amount: 10000, ownerShare: 1.0 }];
+        const cabPisonetRes = this.calculateCabagnan(mockPisonetLogs, [mockPisonetTarget]);
+        const pisonetSelfRes = cabPisonetRes.sourceSelfRecoveryResults["Pisonet"];
+
+        tests.pisonetMotherboardRecoveryTest = (pisonetSelfRes && pisonetSelfRes.allocations.length === 1 && pisonetSelfRes.allocations[0].name === "motherboard" && pisonetSelfRes.allocatedTotal === 3500) ? "PASS" : "FAIL";
+
+        // Transaction Editing & Retraction Verification Tests
+        const activeLog = { id: "t_act1", type: "income", branch: "Cabagñan", source: "Pisonet", amount: 5000, ownerShare: 1.0 };
+        const voidedLog = { id: "t_void1", type: "income", branch: "Cabagñan", source: "Pisonet", amount: 5000, ownerShare: 1.0, status: "VOIDED", isVoided: true };
+        const cabResVoid = this.calculateCabagnan([activeLog, voidedLog], []);
+        tests.voidedExclusionFromAccountingTest = (cabResVoid.sources["Pisonet"] && cabResVoid.sources["Pisonet"].grossRevenue === 5000) ? "PASS" : "FAIL";
+
+        const logFilteredActive = this.filterLogs([activeLog, voidedLog], { period: "All Time", status: "Active Only" });
+        const logFilteredIncludeVoid = this.filterLogs([activeLog, voidedLog], { period: "All Time", status: "Include Voided" });
+        tests.transactionLogVoidedFilterTest = (logFilteredActive.length === 1 && logFilteredIncludeVoid.length === 2) ? "PASS" : "FAIL";
 
         return tests;
     }
